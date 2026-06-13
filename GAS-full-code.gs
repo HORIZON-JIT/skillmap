@@ -1,4 +1,4 @@
-const VERSION = 'partial-save-2026-06-14';
+const VERSION = 'delta-save-2026-06-14';
 
 const SHEETS = {
   workers: 'Workers',
@@ -29,7 +29,8 @@ function doGet(e) {
         headers: getHeaderMap_(getSpreadsheet_().getSheetByName(SHEETS.workers)).headers,
       }, callback);
     }
-    if (action === 'load') return respond(loadAll(), callback);
+    if (action === 'load') return respond(loadAll(params.avatars === '1'), callback);
+    if (action === 'loadAvatars') return respond(loadAvatars(), callback);
     if (action === 'save') {
       const data = safeParse_(params.payload || '{}');
       saveAll(data);
@@ -99,7 +100,7 @@ function setupSheets() {
   Object.keys(HEADERS).forEach(name => ensureSheet_(ss, name, HEADERS[name]));
 }
 
-function loadAll() {
+function loadAll(includeAvatars) {
   setupSheets();
   const ss = getSpreadsheet_();
   const workers = readSheet_(ss, SHEETS.workers).map(row => ({
@@ -107,7 +108,7 @@ function loadAll() {
     name: String(row.name || ''),
     code: String(row.code || ''),
     active: toBool_(row.active, true),
-    avatarDataUrl: String(row.avatarDataUrl || ''),
+    avatarDataUrl: includeAvatars ? String(row.avatarDataUrl || '') : '',
   })).filter(row => row.id);
 
   const categories = readSheet_(ss, SHEETS.categories).map(row => ({
@@ -147,6 +148,16 @@ function loadAll() {
   return { ok: true, version: VERSION, workers, categories, tasks, skills, snapshots };
 }
 
+function loadAvatars() {
+  setupSheets();
+  const ss = getSpreadsheet_();
+  const avatars = readSheet_(ss, SHEETS.workers).map(row => ({
+    id: String(row.id || ''),
+    avatarDataUrl: String(row.avatarDataUrl || ''),
+  })).filter(row => row.id && row.avatarDataUrl);
+  return { ok: true, version: VERSION, avatars };
+}
+
 function saveAll(data) {
   setupSheets();
   saveWorkers(data.workers || []);
@@ -177,6 +188,9 @@ function savePartial(data) {
       return [parts[0] || '', parts[1] || '', Number(data.skills[key] || 0)];
     });
     saveSkillRows(skillRows, 'replace');
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'skillChanges')) {
+    saveSkillChanges(data.skillChanges || []);
   }
   if (Object.prototype.hasOwnProperty.call(data, 'snapshots')) {
     saveSnapshots(data.snapshots || []);
@@ -237,6 +251,42 @@ function saveSkillRows(rows, mode) {
   } else {
     writeSheet_(ss, SHEETS.skills, HEADERS.Skills, normalized);
   }
+}
+
+function saveSkillChanges(changes) {
+  setupSheets();
+  if (!changes || !changes.length) return;
+  const ss = getSpreadsheet_();
+  const sheet = ensureSheet_(ss, SHEETS.skills, HEADERS.Skills);
+  const info = ensureHeaders_(sheet, HEADERS.Skills);
+  const taskCol = info.index.taskId + 1;
+  const workerCol = info.index.workerId + 1;
+  const levelCol = info.index.level + 1;
+  const lastRow = sheet.getLastRow();
+  const existing = {};
+  if (lastRow >= 2) {
+    const values = sheet.getRange(2, 1, lastRow - 1, Math.max(taskCol, workerCol, levelCol)).getValues();
+    values.forEach((row, i) => {
+      const key = String(row[taskCol - 1] || '') + '|' + String(row[workerCol - 1] || '');
+      if (key !== '|') existing[key] = i + 2;
+    });
+  }
+
+  const appends = [];
+  changes.forEach(change => {
+    const taskId = String(change.taskId || '');
+    const workerId = String(change.workerId || '');
+    if (!taskId || !workerId) return;
+    const level = Number(change.level || 0);
+    const key = taskId + '|' + workerId;
+    const row = existing[key];
+    if (row) {
+      sheet.getRange(row, levelCol).setValue(level);
+    } else {
+      appends.push([taskId, workerId, level]);
+    }
+  });
+  appendSheetRows_(ss, SHEETS.skills, HEADERS.Skills, appends);
 }
 
 function saveSnapshots(snapshots) {

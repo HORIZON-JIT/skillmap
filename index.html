@@ -416,6 +416,7 @@ let snapshots = [
 let showDisabled=false, dirty=false;
 const dirtyKeys=new Set();
 const avatarDirtyIds=new Set();
+const skillDirtyKeys=new Set();
 const matrixGroupCollapsed={};
 const taskGroupCollapsed={};
 const charts={};
@@ -429,6 +430,10 @@ function markDirty(){
   dirty=true;
   Array.from(arguments).forEach(k=>dirtyKeys.add(k));
 }
+function markSkillDirty(key){
+  markDirty('skills');
+  skillDirtyKeys.add(key);
+}
 function workerInitial(name){
   const s=String(name||'').replace(/\s+/g,'').trim();
   return s ? Array.from(s)[0] : '?';
@@ -441,6 +446,7 @@ function workerAvatarHtml(w,i,cls){
   return '<span class="'+cls+'" style="background:'+color+'">'+esc(workerInitial(w.name))+'</span>';
 }
 const AVATAR_CACHE_KEY='skillmap_worker_avatars_v1';
+const DATA_CACHE_KEY='skillmap_data_cache_v1';
 function loadAvatarCache(){
   try{return JSON.parse(localStorage.getItem(AVATAR_CACHE_KEY)||'{}');}
   catch(_){return {};}
@@ -463,6 +469,46 @@ function restoreWorkerAvatars(){
 }
 function markAvatarDirty(id){
   if(id)avatarDirtyIds.add(id);
+}
+function loadDataCache(){
+  try{return JSON.parse(localStorage.getItem(DATA_CACHE_KEY)||'null');}
+  catch(_){return null;}
+}
+function saveDataCache(){
+  try{
+    localStorage.setItem(DATA_CACHE_KEY,JSON.stringify({workers,categories,tasks,skills,snapshots,savedAt:Date.now()}));
+  }catch(e){console.warn('data cache save failed',e);}
+}
+function applyLoadedData(d){
+  workers=d.workers||workers;
+  tasks=d.tasks||tasks;
+  skills=d.skills||{};
+  snapshots=d.snapshots||[];
+  if(d.categories&&d.categories.length)categories=d.categories;
+  restoreWorkerAvatars();
+  dirtyKeys.clear();
+  avatarDirtyIds.clear();
+  skillDirtyKeys.clear();
+}
+async function loadAvatarsLater(){
+  try{
+    const d=await jsonp({action:'loadAvatars'});
+    if(!d||!d.ok||!Array.isArray(d.avatars)||!d.avatars.length)return;
+    const map={};
+    d.avatars.forEach(a=>{if(a.id&&a.avatarDataUrl)map[a.id]=a.avatarDataUrl;});
+    let changed=false;
+    workers.forEach(w=>{
+      if(map[w.id]&&w.avatarDataUrl!==map[w.id]){
+        w.avatarDataUrl=map[w.id];
+        changed=true;
+      }
+    });
+    if(changed){
+      rememberWorkerAvatars();
+      saveDataCache();
+      renderAll();
+    }
+  }catch(e){console.warn('avatar background load failed',e);}
 }
 function readAvatarFile(input){
   const file=input&&input.files&&input.files[0];
@@ -599,7 +645,7 @@ function renderMatrix(){
   html+='<td></td></tr></tbody>';
   $('#matrix').innerHTML=html;
   $('#matrix').querySelectorAll('.cell').forEach(c=>c.addEventListener('click',()=>{
-    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;markDirty('skills');renderMatrix();
+    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;markSkillDirty(k);renderMatrix();
   }));
   $('#matrix').querySelectorAll('.matrix-cat-toggle').forEach(b=>b.addEventListener('click',e=>{
     e.stopPropagation();
@@ -1230,6 +1276,12 @@ function jsonp(params){
 
 async function loadData(){
   if(!GAS_URL){renderAll();return;}
+  const cached=loadDataCache();
+  if(cached&&cached.workers&&cached.tasks){
+    applyLoadedData(cached);
+    $('#statusText').textContent='キャッシュ表示中（同期中）';
+    renderAll();
+  }
   try{
     const d=await jsonp({action:'load'});
     const empty=(!d.workers||!d.workers.length)&&(!d.tasks||!d.tasks.length);
@@ -1238,14 +1290,12 @@ async function loadData(){
       $('#statusText').textContent='接続済み・データ未保存（保存ボタンで初回登録）';
       renderAll();return;
     }
-    workers=d.workers;tasks=d.tasks;skills=d.skills||{};snapshots=d.snapshots||[];
-    restoreWorkerAvatars();
-    dirtyKeys.clear();
-    avatarDirtyIds.clear();
-    if(d.categories&&d.categories.length)categories=d.categories;
+    applyLoadedData(d);
+    saveDataCache();
     $('#statusDot').classList.add('online');
     $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 読込）';
     renderAll();
+    loadAvatarsLater();
   }catch(e){toast('読み込みに失敗しました');console.error(e);renderAll();}
 }
 
@@ -1271,7 +1321,15 @@ async function saveCoreData(){
   }
   if(dirtyKeys.has('categories'))data.categories=categories;
   if(dirtyKeys.has('tasks'))data.tasks=tasks;
-  if(dirtyKeys.has('skills'))data.skills=skills;
+  if(dirtyKeys.has('skills')){
+    data.skillChanges=skillDirtyKeys.size
+      ? Array.from(skillDirtyKeys).map(key=>{
+          const parts=key.split('|');
+          return {taskId:parts[0]||'',workerId:parts[1]||'',level:Number(skills[key]||0)};
+        })
+      : null;
+    if(!data.skillChanges)data.skills=skills;
+  }
   if(dirtyKeys.has('snapshots'))data.snapshots=snapshots;
   const payload=JSON.stringify(data);
   await fetch(GAS_URL,{method:'POST',mode:'no-cors',credentials:'include',
@@ -1290,7 +1348,9 @@ async function syncAvatars(){
 }
 function saveOk(){
   rememberWorkerAvatars();
+  saveDataCache();
   avatarDirtyIds.clear();
+  skillDirtyKeys.clear();
   dirtyKeys.clear();
   dirty=false;toast('保存しました');
   $('#statusDot').classList.add('online');
