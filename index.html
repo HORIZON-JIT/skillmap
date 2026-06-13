@@ -905,9 +905,11 @@ function openCatEdit(id){
 /* 作業の手順書・作業名をインライン編集 */
 function openTaskEdit(id){
   const t=tasks.find(x=>x.id===id);
-  const rows=$('#taskList').querySelectorAll('.item-row');
-  const idx=tasks.indexOf(t);
-  const row=rows[idx];
+  // taskList は groupedTasks() の並びで item-row を出力しているので、その並びでの位置で行を特定する
+  const flat=[];
+  groupedTasks().forEach(g=>g.tasks.forEach(x=>flat.push(x)));
+  const idx=flat.findIndex(x=>x.id===id);
+  const row=$('#taskList').querySelectorAll('.item-row')[idx];
   if(!row)return;
   row.innerHTML=
     '<div style="flex:1;display:flex;flex-direction:column;gap:7px">'+
