@@ -695,10 +695,12 @@ function recordSnapshot(){
 }
 
 function renderAdmin(){
-  $('#workerList').innerHTML=workers.map(w=>
+  $('#workerList').innerHTML=workers.map((w,i)=>
     '<div class="item-row '+(w.active?'':'disabled')+'">'+
       '<div><strong>'+esc(w.name)+'</strong> <span class="meta">'+esc(w.code||'')+'</span></div>'+
       '<div style="display:flex;gap:4px">'+
+        '<button class="mini-btn" data-act="upW" data-id="'+w.id+'" '+(i===0?'disabled style="opacity:.3"':'')+'>↑</button>'+
+        '<button class="mini-btn" data-act="dnW" data-id="'+w.id+'" '+(i===workers.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
         '<button class="'+(w.active?'danger':'primary')+' mini-btn" data-act="'+(w.active?'disW':'enW')+'" data-id="'+w.id+'">'+(w.active?'無効化':'復活')+'</button>'+
         '<button class="danger mini-btn" data-act="delW" data-id="'+w.id+'">削除</button>'+
       '</div>'+
@@ -752,6 +754,7 @@ function renderAdmin(){
       if(confirm(w.name+' さんを無効化します。\n評価記録（'+cnt+'件）は残したまま一覧から非表示になります。よろしいですか？')){w.active=false;dirty=true;}}
     else if(act==='enW'){workers.find(x=>x.id===id).active=true;dirty=true;}
     else if(act==='delW'){deleteWorker(id);return;}
+    else if(act==='upW'||act==='dnW'){moveWorker(id,act==='upW'?-1:1);return;}
     else if(act==='disT'){const t=tasks.find(x=>x.id===id);
       if(confirm('作業「'+t.name+'」を無効化します。\n評価記録は残したまま一覧から非表示になります。よろしいですか？')){t.active=false;dirty=true;}}
     else if(act==='enT'){tasks.find(x=>x.id===id).active=true;dirty=true;}
@@ -822,6 +825,15 @@ function moveTask(id,dir){
   if(j<0||j>=grp.length)return;
   const a=grp[i],b=grp[j];
   const tmp=a.order; a.order=b.order; b.order=tmp;
+  dirty=true; renderAll();
+}
+
+/* 作業者の並び替え：配列の並び順がそのまま全画面（マトリクス・グラフ等）の表示順になる */
+function moveWorker(id,dir){
+  const i=workers.findIndex(w=>w.id===id);
+  const j=i+dir;
+  if(j<0||j>=workers.length)return;
+  const tmp=workers[i]; workers[i]=workers[j]; workers[j]=tmp;
   dirty=true; renderAll();
 }
 
