@@ -470,7 +470,7 @@ function readAvatarFile(input){
       const img=new Image();
       img.onerror=()=>reject(new Error('image load failed'));
       img.onload=()=>{
-        const size=80;
+        const size=56;
         const canvas=document.createElement('canvas');
         canvas.width=size;canvas.height=size;
         const ctx=canvas.getContext('2d');
@@ -479,7 +479,7 @@ function readAvatarFile(input){
         ctx.fillStyle='#ffffff';
         ctx.fillRect(0,0,size,size);
         ctx.drawImage(img,sx,sy,side,side,0,0,size,size);
-        resolve(canvas.toDataURL('image/jpeg',0.78));
+        resolve(canvas.toDataURL('image/jpeg',0.68));
       };
       img.src=reader.result;
     };
@@ -1233,14 +1233,17 @@ async function loadData(){
 async function saveData(){
   if(!GAS_URL){toast('ローカルモードのため保存されません');dirty=false;return;}
   rememberWorkerAvatars();
-  const payload={action:'save',workers:workers,categories:categories,tasks:tasks,skills:skills,snapshots:snapshots};
+  const workersForSave=workers.map(w=>({
+    id:w.id,name:w.name,code:w.code||'',active:w.active
+  }));
+  const payload={action:'save',workers:workersForSave,categories:categories,tasks:tasks,skills:skills,snapshots:snapshots};
   const body=JSON.stringify(payload);
   $('#saveBtn').textContent='保存中…';
   try{
     // データが小さければJSONP(GET)で保存（応答が読めるので確実）
     if(encodeURIComponent(body).length<7000){
       const r=await jsonp({action:'save',payload:body});
-      if(r&&r.ok){saveOk();return;}
+      if(r&&r.ok){await syncAvatars();saveOk();return;}
       throw new Error('jsonp save failed');
     }
     // 大きい場合はPOST。社内制約でCORSが弾く場合に備えno-corsで送る
@@ -1248,10 +1251,15 @@ async function saveData(){
       headers:{'Content-Type':'text/plain;charset=utf-8'},body:body});
     // no-corsはレスポンスを読めないので、読み直して確認
     const check=await jsonp({action:'load'});
-    if(check&&check.tasks){saveOk();}else{throw new Error('verify failed');}
+    if(check&&check.tasks){await syncAvatars();saveOk();}else{throw new Error('verify failed');}
   }catch(e){
     toast('保存に失敗しました');console.error(e);
   }finally{$('#saveBtn').textContent='保存';}
+}
+async function syncAvatars(){
+  for(const w of workers){
+    await jsonp({action:'saveAvatar',workerId:w.id,avatarDataUrl:w.avatarDataUrl||''});
+  }
 }
 function saveOk(){
   rememberWorkerAvatars();
