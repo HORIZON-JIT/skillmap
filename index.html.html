@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生産管理課 スキルマップ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f9;
+    --surface:#ffffff;
+    --ink:#1c2733;
+    --ink-dim:#64748b;
+    --line:#e2e8f0;
+    --line-soft:#eef2f6;
+    --brand:#1f6feb;
+    --brand-soft:#e8f1ff;
+    --lv0:#cbd5e1;
+    --lv1:#e5534b;
+    --lv2:#e0a72e;
+    --lv3:#2fa866;
+    --warn:#ea6a3a;
+    --shadow:0 1px 3px rgba(20,40,70,.06),0 6px 20px rgba(20,40,70,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Hiragino Kaku Gothic ProN','Meiryo',system-ui,sans-serif;
+    background:var(--bg);color:var(--ink);font-size:14px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{
+    background:var(--surface);border-bottom:1px solid var(--line);
+    padding:18px 28px;display:flex;align-items:center;justify-content:space-between;
+    flex-wrap:wrap;gap:14px;position:sticky;top:0;z-index:20;
+  }
+  .brand-mark{display:flex;align-items:center;gap:12px}
+  .brand-mark .dot{width:10px;height:34px;border-radius:3px;
+    background:linear-gradient(180deg,var(--lv3) 0%,var(--lv2) 50%,var(--lv1) 100%)}
+  header h1{font-size:17px;font-weight:800;letter-spacing:.03em}
+  header .sub{font-size:11.5px;color:var(--ink-dim);margin-top:1px}
+  .status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-right:5px}
+  .status-dot.online{background:var(--lv3)}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  button{font-family:inherit;font-size:13px;cursor:pointer;border-radius:8px;
+    padding:9px 15px;background:var(--surface);color:var(--ink);border:1px solid var(--line);transition:.15s;font-weight:600}
+  button:hover{border-color:var(--brand);color:var(--brand)}
+  button.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  button.primary:hover{filter:brightness(1.07);color:#fff}
+  button.danger{color:var(--lv1);border-color:#f3c9c7}
+  button.danger:hover{background:var(--lv1);color:#fff;border-color:var(--lv1)}
+  .mini-btn{padding:5px 11px;font-size:12px;border-radius:6px}
+
+  .tabs{display:flex;gap:4px;padding:0 28px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .tab{padding:13px 20px;font-size:14px;font-weight:700;color:var(--ink-dim);
+    border:none;background:none;border-bottom:2.5px solid transparent;border-radius:0;cursor:pointer}
+  .tab:hover{color:var(--brand)}
+  .tab.active{color:var(--brand);border-bottom-color:var(--brand)}
+
+  .view{display:none;padding:24px 28px}
+  .view.active{display:block}
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;font-size:12px;color:var(--ink-dim);align-items:center}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .chip{width:15px;height:15px;border-radius:4px;display:inline-block}
+  .risk-tag{display:inline-block;font-size:10px;background:#fdeee6;color:var(--warn);padding:1px 7px;border-radius:4px;font-weight:700}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+  .matrix-scroll{overflow:auto;border-radius:14px}
+  table{border-collapse:separate;border-spacing:0;width:100%}
+  th,td{text-align:center;white-space:nowrap;border-bottom:1px solid var(--line-soft);border-right:1px solid var(--line-soft)}
+  thead th{background:#f8fafc;font-weight:700;font-size:12px;padding:12px 10px;position:sticky;top:0;z-index:3;color:var(--ink-dim)}
+  .corner-cat{position:sticky;left:0;z-index:4;text-align:center;min-width:78px;background:#f8fafc}
+  .corner-code{position:sticky;left:78px;z-index:4;text-align:center;min-width:54px;background:#f8fafc}
+  .corner-task{position:sticky;left:132px;z-index:4;text-align:left;padding-left:14px;min-width:200px;background:#f8fafc}
+  .cat-cell{position:sticky;left:0;z-index:2;text-align:center;width:78px;min-width:78px;vertical-align:middle;padding:6px 4px}
+  .cat-cell .cat-code{font-size:20px;font-weight:800;line-height:1.1}
+  .cat-cell .cat-label{font-size:10.5px;color:var(--ink-dim);font-weight:700;margin-top:1px}
+  .code-cell{position:sticky;left:78px;z-index:2;width:54px;min-width:54px;font-size:12px;font-weight:700;background:var(--surface)}
+  .task-name{text-align:left;padding:10px 14px;background:var(--surface);position:sticky;left:132px;z-index:2;min-width:200px;font-size:13px;font-weight:600}
+  .doc-badge{font-size:10px;padding:1.5px 7px;border-radius:4px;margin-left:7px;vertical-align:middle;font-weight:700}
+  .doc-yes{background:#e7f6ee;color:var(--lv3)}
+  .doc-no{background:#fdeceb;color:var(--lv1)}
+  .doc-link{color:var(--brand);text-decoration:none;font-size:11px;margin-left:6px;font-weight:600}
+  .doc-link:hover{text-decoration:underline}
+
+  .cell{width:62px;height:44px;cursor:pointer;font-weight:800;font-size:15px;color:#fff;user-select:none;transition:.1s}
+  .cell:hover{box-shadow:inset 0 0 0 2.5px var(--brand)}
+  .lv0{background:var(--lv0);color:#64748b}
+  .lv1{background:var(--lv1)}
+  .lv2{background:var(--lv2);color:#4a3700}
+  .lv3{background:var(--lv3)}
+  .count-cell{color:var(--ink-dim);font-size:12px;font-weight:700;background:#f8fafc}
+  .grp-end td{border-bottom:2px solid var(--line)}
+  .total-row td{background:#f8fafc;font-weight:800}
+  .total-col{color:var(--brand);font-size:16px}
+  .total-label{text-align:left;padding-left:16px;color:var(--ink-dim);font-weight:700;position:sticky;left:0;background:#f8fafc}
+  .subtotal-row td{background:#fbfcfe;font-weight:700;border-bottom:2px solid var(--line)}
+  .subtotal-label{text-align:right;padding-right:16px;color:var(--ink-dim);font-size:12px;position:sticky;left:0;background:#fbfcfe}
+  .subtotal-col{color:var(--ink);font-size:13px}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+  @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+  .kpi .label{font-size:12px;color:var(--ink-dim);font-weight:600}
+  .kpi .value{font-size:30px;font-weight:800;margin-top:4px;letter-spacing:.01em}
+  .kpi .unit{font-size:14px;font-weight:700;color:var(--ink-dim);margin-left:3px}
+  .kpi .foot{font-size:11.5px;color:var(--ink-dim);margin-top:4px}
+  .kpi.accent .value{color:var(--brand)}
+  .kpi.warn .value{color:var(--warn)}
+
+  .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:900px){.chart-grid{grid-template-columns:1fr}}
+  .radar-section{margin-top:20px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+  .radar-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .radar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+  .radar-cell{border:1px solid var(--line);border-radius:12px;padding:14px}
+  .radar-cell .name{font-size:13px;font-weight:800;margin-bottom:2px}
+  .radar-cell .meta{font-size:11px;color:var(--ink-dim);margin-bottom:8px}
+  .radar-box{position:relative;height:230px}
+  .radar-overlay-box{position:relative;height:420px;max-width:560px;margin:0 auto}
+  /* 属人化対策 */
+  .risk-item{display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin-bottom:9px}
+  .risk-rank{font-size:18px;font-weight:800;color:var(--ink-dim);min-width:28px;text-align:center}
+  .risk-score{min-width:64px;text-align:center}
+  .risk-score .num{font-size:22px;font-weight:800;line-height:1}
+  .risk-score .lbl{font-size:9.5px;color:var(--ink-dim);font-weight:700}
+  .risk-main{flex:1;min-width:0}
+  .risk-title{font-size:14px;font-weight:700}
+  .risk-cat{font-size:11px;color:var(--ink-dim);margin-left:7px;font-weight:600}
+  .risk-facts{font-size:11.5px;color:var(--ink-dim);margin-top:3px;display:flex;gap:12px;flex-wrap:wrap}
+  .risk-fact-bad{color:var(--lv1);font-weight:700}
+  .risk-action{font-size:12px;background:#eef7ff;border:1px solid #cfe4fb;color:#1a5fb4;padding:8px 12px;border-radius:8px;min-width:200px;max-width:280px}
+  .risk-action .h{font-weight:800;font-size:10.5px;letter-spacing:.03em;color:#1565c0;margin-bottom:2px}
+  .sev-pill{display:inline-block;font-size:10px;font-weight:800;padding:2px 9px;border-radius:20px;color:#fff}
+  @media(max-width:760px){.risk-item{flex-wrap:wrap}.risk-action{max-width:none}}
+  .heat-name{text-align:left;padding:9px 12px;font-size:12px;font-weight:600;background:var(--surface);white-space:nowrap}
+  .heat-cell{width:46px;height:40px;font-size:12px;font-weight:800;color:#fff;text-align:center}
+  .heat-row-sev{font-size:11px;font-weight:800;padding:0 12px;white-space:nowrap}
+  .chart-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+  .chart-card.wide{grid-column:1 / -1}
+  .chart-card h3{font-size:14px;margin-bottom:4px}
+  .chart-card .desc{font-size:11.5px;color:var(--ink-dim);margin-bottom:14px}
+  .chart-box{position:relative;height:280px}
+  .snap-bar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .snap-bar .note{font-size:12px;color:var(--ink-dim)}
+
+  .admin-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
+  @media(max-width:980px){.admin-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:760px){.admin-grid{grid-template-columns:1fr}}
+  .admin-col{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}
+  .admin-col h3{font-size:14px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .form-row{display:flex;gap:8px;margin-bottom:9px;flex-wrap:wrap;align-items:center}
+  input[type=text],input[type=url],select.sel{background:var(--bg);border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:9px 12px;font-family:inherit;font-size:13px;flex:1;min-width:120px}
+  select.sel{cursor:pointer}
+  input:focus{outline:none;border-color:var(--brand)}
+  label.cb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-dim);cursor:pointer}
+  .item-list{margin-top:14px;max-height:260px;overflow:auto}
+  .item-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;
+    border:1px solid var(--line);border-radius:8px;margin-bottom:7px;font-size:13px}
+  .item-row.disabled{opacity:.5}
+  .item-row .meta{font-size:11px;color:var(--ink-dim)}
+  .task-group-head{font-size:11.5px;font-weight:800;color:var(--brand);background:var(--brand-soft);
+    padding:5px 11px;border-radius:6px;margin:12px 0 7px}
+  .task-group-head:first-child{margin-top:0}
+
+  .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(80px);
+    background:var(--ink);color:#fff;padding:12px 22px;border-radius:10px;font-size:13px;font-weight:600;
+    box-shadow:0 8px 28px rgba(0,0,0,.25);opacity:0;transition:.3s;pointer-events:none;z-index:50}
+  .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand-mark">
+    <div class="dot"></div>
+    <div>
+      <h1>生産管理課 スキルマップ</h1>
+      <div class="sub"><span class="status-dot" id="statusDot"></span><span id="statusText">ローカルモード（試作・データは保存されません）</span></div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button id="snapBtn">今月のスナップショット記録</button>
+    <button class="primary" id="saveBtn">保存</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" data-view="matrix">マトリクス</button>
+  <button class="tab" data-view="dash">ダッシュボード</button>
+  <button class="tab" data-view="risk">属人化対策</button>
+  <button class="tab" data-view="admin">管理</button>
+</div>
+
+<div class="view active" id="view-matrix">
+  <div class="legend">
+    <span><i class="chip lv0"></i>0：未経験</span>
+    <span><i class="chip lv1"></i>1：手順書を見ればできる</span>
+    <span><i class="chip lv2"></i>2：スポットで質問すればできる</span>
+    <span><i class="chip lv3"></i>3：完全マスター</span>
+    <span style="margin-left:auto"><i class="risk-tag">属人化</i>：レベル3が1人以下</span>
+    <button class="mini-btn" id="toggleDisabled" style="margin-left:8px">無効も表示</button>
+  </div>
+  <div class="card matrix-scroll"><table id="matrix"></table></div>
+</div>
+
+<div class="view" id="view-dash">
+  <div class="kpi-grid" id="kpiGrid"></div>
+  <div class="chart-grid">
+    <div class="chart-card wide">
+      <h3>作業者ごとの総合スキル点の推移</h3>
+      <div class="desc">各メンバーの合計点が月ごとにどう伸びているか</div>
+      <div class="chart-box"><canvas id="chartWorker"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>課全体のスキル充足率の推移</h3>
+      <div class="desc">実際の合計点 ÷ 満点（全セル×3）の％</div>
+      <div class="chart-box"><canvas id="chartFill"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>属人化リスク作業数の推移</h3>
+      <div class="desc">レベル3が1人以下の作業の数（少ないほど良い）</div>
+      <div class="chart-box"><canvas id="chartRisk"></canvas></div>
+    </div>
+  </div>
+
+  <div class="radar-section">
+    <div class="radar-head">
+      <div>
+        <h3 style="font-size:15px">担当者別スキルレーダー</h3>
+        <div class="desc" style="font-size:11.5px;color:var(--ink-dim)">大分類ごとの到達度（合計点÷満点）。形が大きく外に広がるほど、その領域が得意</div>
+      </div>
+      <label class="cb" style="font-size:12px"><input type="checkbox" id="radarOverlay">全員を1つに重ねて比較</label>
+    </div>
+    <div id="radarArea"></div>
+  </div>
+</div>
+
+<div class="view" id="view-risk">
+  <div class="kpi-grid" id="riskKpi"></div>
+
+  <div class="card" style="padding:18px 20px;margin-bottom:20px">
+    <h3 style="font-size:15px;margin-bottom:2px">改善優先リスト</h3>
+    <div class="desc" style="font-size:11.5px;color:var(--ink-dim);margin-bottom:14px">属人化スコアが高い順。スコアは「完全習熟者の少なさ・対応可能者の少なさ・手順書の有無」から算出（高いほど危険）</div>
+    <div id="riskList"></div>
+  </div>
+
+  <div class="card" style="padding:18px 20px">
+    <h3 style="font-size:15px;margin-bottom:2px">リスクヒートマップ</h3>
+    <div class="desc" style="font-size:11.5px;color:var(--ink-dim);margin-bottom:14px">作業ごとの危険度を色で表示。赤いほど属人化が深刻</div>
+    <div class="matrix-scroll" id="riskHeat"></div>
+  </div>
+</div>
+
+<div class="view" id="view-admin">
+  <div class="snap-bar">
+    <span class="note">スナップショットは月末などに記録します。記録した時点の各人の合計点・課の充足率・属人化作業数がダッシュボードのチャートに反映されます。</span>
+  </div>
+  <div class="admin-grid">
+    <div class="admin-col">
+      <h3>作業者マスタ</h3>
+      <div class="form-row">
+        <input type="text" id="newWorkerName" placeholder="氏名">
+        <input type="text" id="newWorkerCode" placeholder="社員番号" style="max-width:120px">
+        <button class="primary mini-btn" id="addWorker">追加</button>
+      </div>
+      <div class="item-list" id="workerList"></div>
+    </div>
+    <div class="admin-col">
+      <h3>大分類マスタ</h3>
+      <div class="form-row">
+        <input type="text" id="newCatCode" placeholder="略号" style="max-width:70px">
+        <input type="text" id="newCatName" placeholder="大分類名（例：計画）">
+        <input type="color" id="newCatColor" value="#4a90d9" title="帯色" style="width:40px;height:38px;padding:2px;flex:0 0 auto">
+        <button class="primary mini-btn" id="addCat">追加</button>
+      </div>
+      <div class="item-list" id="catList"></div>
+    </div>
+    <div class="admin-col">
+      <h3>作業マスタ（中分類）</h3>
+      <div class="form-row">
+        <input type="text" id="newTaskCode" placeholder="コード" style="max-width:80px">
+        <input type="text" id="newTaskName" placeholder="作業名">
+        <select id="newTaskCat" class="sel"></select>
+      </div>
+      <div class="form-row">
+        <label class="cb"><input type="checkbox" id="newTaskDoc">手順書あり</label>
+        <input type="url" id="newTaskLink" placeholder="手順書リンク（任意）">
+        <button class="primary mini-btn" id="addTask">追加</button>
+      </div>
+      <div class="item-list" id="taskList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let workers = [
+  {id:'W001', name:'谷 祐馬', code:'12345', active:true},
+  {id:'W002', name:'佐藤 健', code:'12346', active:true},
+  {id:'W003', name:'鈴木 一郎', code:'12347', active:true},
+  {id:'W004', name:'高橋 三郎', code:'12348', active:true},
+];
+// 大分類マスタ（中分類＝作業を束ねる）。code=略号, label=説明, color=帯色
+let categories = [
+  {id:'C001', code:'K', name:'計画',     color:'#4a90d9', order:1, active:true},
+  {id:'C002', code:'T', name:'手配',     color:'#3fae6a', order:2, active:true},
+  {id:'C003', code:'J', name:'受注',     color:'#e5534b', order:3, active:true},
+  {id:'C004', code:'B', name:'BOMメンテ', color:'#8b5cf6', order:4, active:true},
+  {id:'C005', code:'S', name:'打合せ',    color:'#e0a72e', order:5, active:true},
+];
+let tasks = [
+  {id:'T001', code:'K1', name:'新規計画',        catId:'C001', order:1, hasDoc:true,  link:'', active:true},
+  {id:'T002', code:'K2', name:'計画調整',        catId:'C001', order:2, hasDoc:true,  link:'', active:true},
+  {id:'T003', code:'K3', name:'進捗確認',        catId:'C001', order:3, hasDoc:false, link:'', active:true},
+  {id:'T004', code:'K4', name:'部品進捗確認',    catId:'C001', order:4, hasDoc:false, link:'', active:true},
+  {id:'T005', code:'T1', name:'計画手配',        catId:'C002', order:1, hasDoc:true,  link:'', active:true},
+  {id:'T006', code:'T2', name:'計画外手配',      catId:'C002', order:2, hasDoc:false, link:'', active:true},
+  {id:'T007', code:'T3', name:'試作手配',        catId:'C002', order:3, hasDoc:false, link:'', active:true},
+  {id:'T008', code:'J1', name:'受注確認/引当',   catId:'C003', order:1, hasDoc:true,  link:'', active:true},
+  {id:'T009', code:'J2', name:'OEM商品受注出荷', catId:'C003', order:2, hasDoc:false, link:'', active:true},
+  {id:'T010', code:'B1', name:'部品表メンテナンス', catId:'C004', order:1, hasDoc:false, link:'', active:true},
+  {id:'T011', code:'B2', name:'設計変更',        catId:'C004', order:2, hasDoc:false, link:'', active:true},
+  {id:'T012', code:'B3', name:'原価集計',        catId:'C004', order:3, hasDoc:true,  link:'', active:true},
+  {id:'T013', code:'S1', name:'打合せ',          catId:'C005', order:1, hasDoc:false, link:'', active:true},
+  {id:'T014', code:'S2', name:'問い合わせ対応',  catId:'C005', order:2, hasDoc:false, link:'', active:true},
+];
+let skills = {
+  'T001|W001':3,'T001|W002':2,'T001|W003':1,'T001|W004':0,
+  'T002|W001':3,'T002|W002':1,'T002|W003':0,'T002|W004':0,
+  'T003|W001':2,'T003|W002':2,'T003|W003':1,'T003|W004':1,
+  'T004|W001':2,'T004|W002':1,'T004|W003':0,'T004|W004':0,
+  'T005|W001':3,'T005|W002':2,'T005|W003':1,'T005|W004':1,
+  'T006|W001':3,'T006|W002':0,'T006|W003':0,'T006|W004':0,
+  'T007|W001':2,'T007|W002':1,'T007|W003':0,'T007|W004':0,
+  'T008|W001':3,'T008|W002':3,'T008|W003':2,'T008|W004':1,
+  'T009|W001':2,'T009|W002':1,'T009|W003':1,'T009|W004':0,
+  'T010|W001':1,'T010|W002':0,'T010|W003':0,'T010|W004':0,
+  'T011|W001':2,'T011|W002':1,'T011|W003':0,'T011|W004':0,
+  'T012|W001':3,'T012|W002':2,'T012|W003':1,'T012|W004':1,
+  'T013|W001':2,'T013|W002':2,'T013|W003':2,'T013|W004':2,
+  'T014|W001':3,'T014|W002':2,'T014|W003':1,'T014|W004':1,
+};
+let snapshots = [
+  {month:'2026-03', totals:{W001:24, W002:12, W003:4,  W004:2}, fill:30, risk:9},
+  {month:'2026-04', totals:{W001:29, W002:15, W003:7,  W004:4}, fill:36, risk:8},
+  {month:'2026-05', totals:{W001:32, W002:18, W003:9,  W004:6}, fill:40, risk:7},
+];
+
+let showDisabled=false, dirty=false;
+const charts={};
+const $=s=>document.querySelector(s);
+const skey=(t,w)=>t+'|'+w;
+const getLv=(t,w)=>skills[skey(t,w)]??0;
+const esc=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);};
+const catName=id=>{const c=categories.find(x=>x.id===id);return c?c.name:'未分類';};
+// 帯色を薄い背景色に変換（大分類セルの淡色背景用）
+function hexToSoft(hex){
+  const h=hex.replace('#','');
+  const r=parseInt(h.substring(0,2),16),g=parseInt(h.substring(2,4),16),b=parseInt(h.substring(4,6),16);
+  return 'rgba('+r+','+g+','+b+',0.10)';
+}
+// 有効な大分類を並び順で返す（末尾に未分類グループを足す）
+function orderedCats(){
+  const cs=categories.filter(c=>c.active).slice().sort((a,b)=>a.order-b.order);
+  return cs;
+}
+// 表示対象の作業を大分類ごとにまとめた配列を返す [{cat, tasks:[...]}]
+function groupedTasks(){
+  const at=tasks.filter(t=>showDisabled||t.active);
+  const byOrder=(a,b)=>(a.order||0)-(b.order||0);
+  const groups=[];
+  orderedCats().forEach(c=>{
+    const ts=at.filter(t=>t.catId===c.id).slice().sort(byOrder);
+    if(ts.length)groups.push({cat:c, tasks:ts});
+  });
+  // どの有効分類にも属さない作業（分類が無効化/削除された等）
+  const orphan=at.filter(t=>!categories.find(c=>c.active&&c.id===t.catId)).slice().sort(byOrder);
+  if(orphan.length)groups.push({cat:{id:'',name:'未分類'}, tasks:orphan});
+  return groups;
+}
+
+function calcCurrent(){
+  const aw=workers.filter(w=>w.active), at=tasks.filter(t=>t.active);
+  const totals={};
+  aw.forEach(w=>totals[w.id]=at.reduce((s,t)=>s+getLv(t.id,w.id),0));
+  const sum=Object.values(totals).reduce((a,b)=>a+b,0);
+  const max=aw.length*at.length*3;
+  const fill=max?Math.round(sum/max*100):0;
+  const risk=at.filter(t=>aw.filter(w=>getLv(t.id,w.id)===3).length<=1).length;
+  return {totals,fill,risk,workerCount:aw.length,taskCount:at.length};
+}
+
+function renderMatrix(){
+  const aw=workers.filter(w=>showDisabled||w.active);
+  let html='<thead><tr>'+
+    '<th class="corner-cat">大分類</th>'+
+    '<th class="corner-code">コード</th>'+
+    '<th class="corner-task">中分類（クリックで加算）</th>';
+  aw.forEach(w=>html+='<th'+(w.active?'':' style="opacity:.45"')+'>'+esc(w.name)+'</th>');
+  html+='<th>対応可能</th></tr></thead><tbody>';
+
+  const groups=groupedTasks();
+  groups.forEach(g=>{
+    const col=g.cat.color||'#94a3b8';
+    g.tasks.forEach((t,i)=>{
+      const masters=aw.filter(w=>getLv(t.id,w.id)===3).length;
+      const able=aw.filter(w=>getLv(t.id,w.id)>=1).length;
+      const isLast=i===g.tasks.length-1;
+      html+='<tr class="task-tr'+(isLast?' grp-end':'')+'">';
+      // 大分類セル（グループ先頭行だけrowspanで出す）
+      if(i===0){
+        html+='<td class="cat-cell" rowspan="'+g.tasks.length+'" '+
+          'style="border-left:6px solid '+col+';background:'+hexToSoft(col)+'">'+
+          '<div class="cat-code" style="color:'+col+'">'+esc(g.cat.code||'')+'</div>'+
+          '<div class="cat-label">'+esc(g.cat.name)+'</div></td>';
+      }
+      // コード列
+      html+='<td class="code-cell" style="color:'+col+'">'+esc(t.code||'')+'</td>';
+      // 中分類名
+      html+='<td class="task-name" style="'+(t.active?'':'opacity:.45')+'">'+esc(t.name);
+      html+=t.hasDoc?'<span class="doc-badge doc-yes">手順書</span>':'<span class="doc-badge doc-no">手順書なし</span>';
+      if(t.link)html+='<a class="doc-link" href="'+esc(t.link)+'" target="_blank">開く</a>';
+      if(masters<=1)html+='<span class="risk-tag">属人化</span>';
+      html+='</td>';
+      aw.forEach(w=>{const lv=getLv(t.id,w.id);html+='<td class="cell lv'+lv+'" data-t="'+t.id+'" data-w="'+w.id+'">'+lv+'</td>';});
+      html+='<td class="count-cell">'+able+'人</td></tr>';
+    });
+    // 大分類の小計行
+    html+='<tr class="subtotal-row"><td class="subtotal-label" colspan="3">小計（'+esc(g.cat.name)+'）</td>';
+    aw.forEach(w=>html+='<td class="subtotal-col">'+g.tasks.reduce((s,t)=>s+getLv(t.id,w.id),0)+'</td>');
+    html+='<td></td></tr>';
+  });
+
+  // 全体合計
+  const allTasks=tasks.filter(t=>showDisabled||t.active);
+  html+='<tr class="total-row"><td class="total-label" colspan="3">スキル合計点</td>';
+  aw.forEach(w=>html+='<td class="total-col">'+allTasks.reduce((s,t)=>s+getLv(t.id,w.id),0)+'</td>');
+  html+='<td></td></tr></tbody>';
+  $('#matrix').innerHTML=html;
+  $('#matrix').querySelectorAll('.cell').forEach(c=>c.addEventListener('click',()=>{
+    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;dirty=true;renderMatrix();
+  }));
+}
+
+function renderDash(){
+  const cur=calcCurrent();
+  $('#kpiGrid').innerHTML=
+    '<div class="kpi accent"><div class="label">課全体のスキル充足率</div><div class="value">'+cur.fill+'<span class="unit">%</span></div><div class="foot">満点 '+(cur.workerCount*cur.taskCount*3)+' 点中</div></div>'+
+    '<div class="kpi warn"><div class="label">属人化リスク作業</div><div class="value">'+cur.risk+'<span class="unit">件</span></div><div class="foot">全 '+cur.taskCount+' 作業中</div></div>'+
+    '<div class="kpi"><div class="label">手順書なしの作業</div><div class="value">'+tasks.filter(t=>t.active&&!t.hasDoc).length+'<span class="unit">件</span></div><div class="foot">整備の優先候補</div></div>'+
+    '<div class="kpi"><div class="label">記録済みスナップショット</div><div class="value">'+snapshots.length+'<span class="unit">回</span></div><div class="foot">最新 '+(snapshots.at(-1)?.month??'—')+'</div></div>';
+  drawCharts();
+  drawRadars();
+}
+
+/* 各大分類の到達度（％）を担当者ごとに算出。軸＝有効な大分類 */
+function radarAxes(){ return orderedCats(); } // 表示順の大分類を軸に
+function workerCatPct(wid){
+  // 大分類ごと：その分類の有効作業の合計点 ÷ (作業数×3)
+  return radarAxes().map(c=>{
+    const ts=tasks.filter(t=>t.active&&t.catId===c.id);
+    if(!ts.length)return 0;
+    const sum=ts.reduce((s,t)=>s+getLv(t.id,wid),0);
+    return Math.round(sum/(ts.length*3)*100);
+  });
+}
+
+let radarCharts=[];
+function destroyRadars(){ radarCharts.forEach(c=>c.destroy()); radarCharts=[]; }
+
+function drawRadars(){
+  destroyRadars();
+  const aw=workers.filter(w=>w.active);
+  const labels=radarAxes().map(c=>c.name);
+  const area=$('#radarArea');
+  const overlay=$('#radarOverlay').checked;
+
+  if(labels.length<3){
+    area.innerHTML='<div class="desc" style="padding:8px">レーダーチャートには大分類が3つ以上必要です（現在 '+labels.length+' 個）。</div>';
+    return;
+  }
+
+  if(overlay){
+    // 全員を1枚に重ねる
+    area.innerHTML='<div class="radar-overlay-box"><canvas id="radarAll"></canvas></div>';
+    const datasets=aw.map((w,i)=>{
+      const col=palette[i%palette.length];
+      return {label:w.name, data:workerCatPct(w.id),
+        borderColor:col, backgroundColor:hexA(col,.12), borderWidth:2, pointRadius:2.5, pointBackgroundColor:col};
+    });
+    radarCharts.push(makeRadar('radarAll',labels,datasets,true));
+  }else{
+    // 担当者ごとに1枚ずつ自動生成
+    area.innerHTML='<div class="radar-grid">'+aw.map(w=>{
+      const sum=tasks.filter(t=>t.active).reduce((s,t)=>s+getLv(t.id,w.id),0);
+      return '<div class="radar-cell"><div class="name">'+esc(w.name)+'</div>'+
+        '<div class="meta">合計 '+sum+' 点</div>'+
+        '<div class="radar-box"><canvas id="radar_'+w.id+'"></canvas></div></div>';
+    }).join('')+'</div>';
+    aw.forEach((w,i)=>{
+      const col=palette[i%palette.length];
+      radarCharts.push(makeRadar('radar_'+w.id,labels,[{
+        label:w.name, data:workerCatPct(w.id),
+        borderColor:col, backgroundColor:hexA(col,.18), borderWidth:2, pointRadius:2.5, pointBackgroundColor:col
+      }],false));
+    });
+  }
+}
+
+function hexA(hex,a){const h=hex.replace('#','');const r=parseInt(h.substring(0,2),16),g=parseInt(h.substring(2,4),16),b=parseInt(h.substring(4,6),16);return 'rgba('+r+','+g+','+b+','+a+')';}
+
+function makeRadar(id,labels,datasets,legend){
+  return new Chart(document.getElementById(id),{
+    type:'radar',
+    data:{labels:labels,datasets:datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:legend,position:'bottom',labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label:ctx=>ctx.dataset.label+'：'+ctx.formattedValue+'%'}}},
+      scales:{r:{
+        min:0,max:100,
+        ticks:{stepSize:25,backdropColor:'transparent',font:{size:9},color:'#94a3b8',callback:v=>v+'%'},
+        grid:{color:'#e2e8f0'},angleLines:{color:'#e2e8f0'},
+        pointLabels:{font:{size:11,weight:'600'},color:'#1c2733'}
+      }}}
+  });
+}
+
+const palette=['#1f6feb','#2fa866','#e0a72e','#e5534b','#8b5cf6','#0ea5e9','#ec4899','#14b8a6'];
+
+/* =========================================================
+   属人化対策ロジック
+   ========================================================= */
+// 1作業の属人化スコアと内訳を算出（高いほど危険）
+function taskRisk(t){
+  const aw=workers.filter(w=>w.active);
+  const masters=aw.filter(w=>getLv(t.id,w.id)===3).length;      // 完全習熟者
+  const sub=aw.filter(w=>getLv(t.id,w.id)===2).length;           // 質問すればできる
+  const able=aw.filter(w=>getLv(t.id,w.id)>=1).length;          // 対応可能者
+  let score=0;
+  // 完全習熟者の少なさ（最重要）
+  if(masters===0)score+=50; else if(masters===1)score+=30;
+  // 対応可能者の少なさ（業務停止リスク）
+  if(able===0)score+=30; else if(able===1)score+=18; else if(able===2)score+=6;
+  // 手順書が無い（引き継ぎ困難）
+  if(!t.hasDoc)score+=15;
+  // 重大度ラベル
+  let sev,sevColor;
+  if(score>=60){sev='重大';sevColor='#c0392b';}
+  else if(score>=35){sev='高';sevColor='#e5534b';}
+  else if(score>=18){sev='中';sevColor='#e0a72e';}
+  else{sev='低';sevColor='#2fa866';}
+  return {masters,sub,able,score,sev,sevColor};
+}
+
+// 次の改善アクション（誰を1段上げると最も効くか）
+function riskAction(t){
+  const aw=workers.filter(w=>w.active);
+  const r=taskRisk(t);
+  // 完全習熟者を増やすのが最優先：レベル2の人がいれば、その人を3へ
+  if(r.masters<=1){
+    const cand=aw.filter(w=>getLv(t.id,w.id)===2);
+    if(cand.length){
+      return {who:cand.map(w=>w.name), from:2, to:3,
+        text:'を完全マスター(3)へ。'+(r.masters===0?'習熟者ゼロを解消':'2人目の習熟者を確保')};
+    }
+    // レベル2もいなければ、レベル1の人を2へ
+    const c1=aw.filter(w=>getLv(t.id,w.id)===1);
+    if(c1.length){
+      return {who:c1.map(w=>w.name), from:1, to:2, text:'をレベル2へ育成。まず質問対応できる人を増やす'};
+    }
+    // 誰も着手していない → 未経験者を1へ
+    const c0=aw.filter(w=>getLv(t.id,w.id)===0);
+    if(c0.length){
+      return {who:c0.map(w=>w.name), from:0, to:1, text:'に着手依頼。手順書ベースで担当できる人を作る'+(t.hasDoc?'':'（要・手順書整備）')};
+    }
+  }
+  // すでに習熟者2人以上 → 手順書整備があれば提案
+  if(!t.hasDoc)return {who:[], text:'手順書を整備し、属人化を恒久的に防ぐ'};
+  return {who:[], text:'現状は安全圏。維持でOK'};
+}
+
+// 全作業のリスク一覧（危険な順）
+function riskRanking(){
+  return tasks.filter(t=>t.active).map(t=>({t,r:taskRisk(t),a:riskAction(t)}))
+    .sort((x,y)=>y.r.score-x.r.score);
+}
+
+function renderRisk(){
+  const aw=workers.filter(w=>w.active);
+  const ranked=riskRanking();
+  const critical=ranked.filter(x=>x.r.sev==='重大').length;
+  const high=ranked.filter(x=>x.r.sev==='高').length;
+  const noMaster=ranked.filter(x=>x.r.masters===0).length;
+  const noDoc=tasks.filter(t=>t.active&&!t.hasDoc).length;
+
+  // KPI
+  $('#riskKpi').innerHTML=
+    '<div class="kpi warn"><div class="label">重大リスク作業</div><div class="value">'+critical+'<span class="unit">件</span></div><div class="foot">最優先で着手</div></div>'+
+    '<div class="kpi"><div class="label">高リスク作業</div><div class="value">'+high+'<span class="unit">件</span></div><div class="foot">早期の育成が必要</div></div>'+
+    '<div class="kpi warn"><div class="label">習熟者ゼロの作業</div><div class="value">'+noMaster+'<span class="unit">件</span></div><div class="foot">レベル3が誰もいない</div></div>'+
+    '<div class="kpi"><div class="label">手順書なし</div><div class="value">'+noDoc+'<span class="unit">件</span></div><div class="foot">引き継ぎ困難の要因</div></div>';
+
+  // 改善優先リスト
+  $('#riskList').innerHTML=ranked.map((x,i)=>{
+    const t=x.t, r=x.r, a=x.a;
+    const facts=[
+      '完全習熟者 <span class="'+(r.masters<=1?'risk-fact-bad':'')+'">'+r.masters+'人</span>',
+      '対応可能 <span class="'+(r.able<=1?'risk-fact-bad':'')+'">'+r.able+'人</span>',
+      (t.hasDoc?'手順書あり':'<span class="risk-fact-bad">手順書なし</span>')
+    ].join('');
+    let actionHtml;
+    if(a.who&&a.who.length){
+      actionHtml='<div class="h">次の一手</div>'+esc(a.who.join('・'))+' さん'+esc(a.text);
+    }else{
+      actionHtml='<div class="h">次の一手</div>'+esc(a.text);
+    }
+    return '<div class="risk-item">'+
+      '<div class="risk-rank">'+(i+1)+'</div>'+
+      '<div class="risk-score"><div class="num" style="color:'+r.sevColor+'">'+r.score+'</div>'+
+        '<span class="sev-pill" style="background:'+r.sevColor+'">'+r.sev+'</span></div>'+
+      '<div class="risk-main">'+
+        '<div><span class="risk-title">'+esc(t.code?(t.code+' '):'')+esc(t.name)+'</span>'+
+        '<span class="risk-cat">'+esc(catName(t.catId))+'</span></div>'+
+        '<div class="risk-facts">'+facts+'</div>'+
+      '</div>'+
+      '<div class="risk-action">'+actionHtml+'</div>'+
+    '</div>';
+  }).join('');
+
+  // ヒートマップ（作業×担当者、危険度順に作業を縦、セルはレベル色）
+  let html='<table><thead><tr><th class="heat-name" style="position:sticky;left:0;z-index:3;background:#f8fafc">作業（危険な順）</th>';
+  html+='<th style="background:#f8fafc">危険度</th>';
+  aw.forEach(w=>html+='<th style="background:#f8fafc;font-size:11px;padding:8px 6px">'+esc(w.name)+'</th>');
+  html+='</tr></thead><tbody>';
+  ranked.forEach(x=>{
+    const t=x.t,r=x.r;
+    html+='<tr>';
+    html+='<td class="heat-name" style="position:sticky;left:0;z-index:2">'+esc(t.code?(t.code+' '):'')+esc(t.name)+'</td>';
+    html+='<td class="heat-row-sev" style="color:'+r.sevColor+'">'+r.sev+'<br><span style="font-size:9px;color:var(--ink-dim)">'+r.score+'</span></td>';
+    aw.forEach(w=>{const lv=getLv(t.id,w.id);html+='<td class="heat-cell lv'+lv+'">'+lv+'</td>';});
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  $('#riskHeat').innerHTML=html;
+}
+
+function drawCharts(){
+  const months=snapshots.map(s=>s.month);
+  const wsets=workers.filter(w=>w.active).map((w,i)=>({
+    label:w.name, data:snapshots.map(s=>s.totals[w.id]??null),
+    borderColor:palette[i%palette.length], backgroundColor:palette[i%palette.length],
+    tension:.3, spanGaps:true, borderWidth:2.5, pointRadius:3
+  }));
+  mkChart('chartWorker','line',months,wsets,{legend:true});
+  mkChart('chartFill','line',months,[{label:'充足率',data:snapshots.map(s=>s.fill),
+    borderColor:'#1f6feb',backgroundColor:'rgba(31,111,235,.12)',fill:true,tension:.3,borderWidth:2.5,pointRadius:3}],
+    {legend:false,yMax:100,ySuffix:'%'});
+  mkChart('chartRisk','bar',months,[{label:'属人化作業数',data:snapshots.map(s=>s.risk),
+    backgroundColor:'#ea6a3a',borderRadius:6,maxBarThickness:46}],{legend:false});
+}
+function mkChart(id,type,labels,datasets,opt){
+  opt=opt||{};
+  if(charts[id])charts[id].destroy();
+  charts[id]=new Chart(document.getElementById(id),{
+    type:type,data:{labels:labels,datasets:datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:opt.legend,position:'bottom',labels:{boxWidth:12,font:{size:11}}}},
+      scales:{
+        y:{beginAtZero:true,max:opt.yMax,ticks:{callback:v=>v+(opt.ySuffix||''),font:{size:11}},grid:{color:'#eef2f6'}},
+        x:{grid:{display:false},ticks:{font:{size:11}}}
+      }}
+  });
+}
+
+function recordSnapshot(){
+  const now=new Date();
+  const month=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const cur=calcCurrent();
+  const rec={month:month,totals:Object.assign({},cur.totals),fill:cur.fill,risk:cur.risk};
+  const idx=snapshots.findIndex(s=>s.month===month);
+  if(idx>=0){
+    if(!confirm(month+' のスナップショットは既にあります。上書きしますか？'))return;
+    snapshots[idx]=rec;
+  }else{
+    snapshots.push(rec);
+    snapshots.sort((a,b)=>a.month.localeCompare(b.month));
+  }
+  dirty=true;
+  toast(month+' のスナップショットを記録しました');
+  renderDash();
+}
+
+function renderAdmin(){
+  $('#workerList').innerHTML=workers.map(w=>
+    '<div class="item-row '+(w.active?'':'disabled')+'">'+
+      '<div><strong>'+esc(w.name)+'</strong> <span class="meta">'+esc(w.code||'')+'</span></div>'+
+      '<button class="'+(w.active?'danger':'primary')+' mini-btn" data-act="'+(w.active?'disW':'enW')+'" data-id="'+w.id+'">'+(w.active?'無効化':'復活')+'</button>'+
+    '</div>').join('');
+
+  // 大分類一覧（並び順）
+  const cats=categories.slice().sort((a,b)=>a.order-b.order);
+  $('#catList').innerHTML=cats.map((c,i)=>
+    '<div class="item-row '+(c.active?'':'disabled')+'">'+
+      '<div style="display:flex;align-items:center;gap:8px">'+
+        '<span style="width:12px;height:12px;border-radius:3px;background:'+(c.color||'#94a3b8')+';flex:0 0 auto"></span>'+
+        '<div><strong>'+esc(c.code?('['+c.code+'] '):'')+esc(c.name)+'</strong> <span class="meta">'+tasks.filter(t=>t.catId===c.id&&t.active).length+'作業</span></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:4px">'+
+        '<button class="mini-btn" data-act="upC" data-id="'+c.id+'" '+(i===0?'disabled style="opacity:.3"':'')+'>↑</button>'+
+        '<button class="mini-btn" data-act="dnC" data-id="'+c.id+'" '+(i===cats.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
+        '<button class="mini-btn" data-act="editC" data-id="'+c.id+'">編集</button>'+
+        '<button class="'+(c.active?'danger':'primary')+' mini-btn" data-act="'+(c.active?'disC':'enC')+'" data-id="'+c.id+'">'+(c.active?'無効化':'復活')+'</button>'+
+      '</div>'+
+    '</div>').join('');
+
+  // 作業追加の分類プルダウン充填
+  const opts=orderedCats().map(c=>'<option value="'+c.id+'">'+esc(c.code?(c.code+'：'):'')+esc(c.name)+'</option>').join('');
+  $('#newTaskCat').innerHTML=opts||'<option value="">（大分類なし）</option>';
+
+  // 作業一覧（大分類ごとにまとめ、分類内order順で↑↓並び替え）
+  let th='';
+  groupedTasks().forEach(g=>{
+    th+='<div class="task-group-head">'+esc(g.cat.code?('['+g.cat.code+'] '):'')+esc(g.cat.name)+'</div>';
+    g.tasks.forEach((t,i)=>{
+      th+='<div class="item-row '+(t.active?'':'disabled')+'">'+
+        '<div><strong>'+esc(t.code?(t.code+' '):'')+esc(t.name)+'</strong> '+
+          '<span class="meta">'+(t.hasDoc?'手順書あり':'手順書なし')+
+          (t.link?' ・<a class="doc-link" href="'+esc(t.link)+'" target="_blank">リンク</a>':(t.hasDoc?' ・リンク未設定':''))+'</span></div>'+
+        '<div style="display:flex;gap:4px">'+
+          '<button class="mini-btn" data-act="upT" data-id="'+t.id+'" '+(i===0?'disabled style="opacity:.3"':'')+'>↑</button>'+
+          '<button class="mini-btn" data-act="dnT" data-id="'+t.id+'" '+(i===g.tasks.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
+          '<button class="mini-btn" data-act="editT" data-id="'+t.id+'">編集</button>'+
+          '<button class="'+(t.active?'danger':'primary')+' mini-btn" data-act="'+(t.active?'disT':'enT')+'" data-id="'+t.id+'">'+(t.active?'無効化':'復活')+'</button>'+
+        '</div>'+
+      '</div>';
+    });
+  });
+  $('#taskList').innerHTML=th;
+
+  document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.dataset.id,act=b.dataset.act;
+    if(act==='disW'){const w=workers.find(x=>x.id===id);const cnt=tasks.filter(t=>getLv(t.id,id)>0).length;
+      if(confirm(w.name+' さんを無効化します。\n評価記録（'+cnt+'件）は残したまま一覧から非表示になります。よろしいですか？')){w.active=false;dirty=true;}}
+    else if(act==='enW'){workers.find(x=>x.id===id).active=true;dirty=true;}
+    else if(act==='disT'){const t=tasks.find(x=>x.id===id);
+      if(confirm('作業「'+t.name+'」を無効化します。\n評価記録は残したまま一覧から非表示になります。よろしいですか？')){t.active=false;dirty=true;}}
+    else if(act==='enT'){tasks.find(x=>x.id===id).active=true;dirty=true;}
+    else if(act==='upT'||act==='dnT'){moveTask(id,act==='upT'?-1:1);return;}
+    else if(act==='editT'){openTaskEdit(id);return;}
+    else if(act==='disC'){const c=categories.find(x=>x.id===id);const cnt=tasks.filter(t=>t.catId===id&&t.active).length;
+      if(confirm('大分類「'+c.name+'」を無効化します。\n属する作業 '+cnt+' 件は「未分類」として表示されます（評価記録は保持）。よろしいですか？')){c.active=false;dirty=true;}}
+    else if(act==='enC'){categories.find(x=>x.id===id).active=true;dirty=true;}
+    else if(act==='upC'||act==='dnC'){moveCat(id,act==='upC'?-1:1);return;}
+    else if(act==='editC'){openCatEdit(id);return;}
+    renderAll();
+  }));
+}
+
+/* 作業（中分類）の並び替え：同じ大分類グループ内で前後と入れ替え */
+function moveTask(id,dir){
+  const t=tasks.find(x=>x.id===id);
+  // 同じグループ（同一catId、または未分類どうし）の表示中作業をorder順で取得
+  const sameCat=x=>{
+    const xOrphan=!categories.find(c=>c.active&&c.id===x.catId);
+    const tOrphan=!categories.find(c=>c.active&&c.id===t.catId);
+    return tOrphan?xOrphan:x.catId===t.catId;
+  };
+  const grp=tasks.filter(x=>(showDisabled||x.active)&&sameCat(x)).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+  const i=grp.findIndex(x=>x.id===id);
+  const j=i+dir;
+  if(j<0||j>=grp.length)return;
+  const a=grp[i],b=grp[j];
+  const tmp=a.order; a.order=b.order; b.order=tmp;
+  dirty=true; renderAll();
+}
+
+/* 大分類の並び替え */
+function moveCat(id,dir){
+  const cats=categories.slice().sort((a,b)=>a.order-b.order);
+  const i=cats.findIndex(c=>c.id===id);
+  const j=i+dir;
+  if(j<0||j>=cats.length)return;
+  const a=cats[i],b=cats[j];
+  const tmp=a.order; a.order=b.order; b.order=tmp;
+  dirty=true; renderAll();
+}
+
+/* 大分類名のインライン編集 */
+function openCatEdit(id){
+  const c=categories.find(x=>x.id===id);
+  const cats=categories.slice().sort((a,b)=>a.order-b.order);
+  const row=$('#catList').querySelectorAll('.item-row')[cats.indexOf(c)];
+  if(!row)return;
+  row.innerHTML=
+    '<div style="flex:1;display:flex;gap:6px;align-items:center">'+
+      '<input type="text" id="edtCatCode" value="'+esc(c.code||'')+'" placeholder="略号" style="max-width:60px">'+
+      '<input type="text" id="edtCatName" value="'+esc(c.name)+'" style="flex:1">'+
+      '<input type="color" id="edtCatColor" value="'+(c.color||'#94a3b8')+'" style="width:38px;height:36px;padding:2px;flex:0 0 auto">'+
+    '</div>'+
+    '<div style="display:flex;gap:6px">'+
+      '<button class="primary mini-btn" id="edtCatSave">保存</button>'+
+      '<button class="mini-btn" id="edtCatCancel">取消</button>'+
+    '</div>';
+  row.querySelector('#edtCatSave').addEventListener('click',()=>{
+    const nm=row.querySelector('#edtCatName').value.trim();
+    if(!nm){toast('大分類名を入力してください');return;}
+    c.name=nm; c.code=row.querySelector('#edtCatCode').value.trim(); c.color=row.querySelector('#edtCatColor').value;
+    dirty=true; renderAll(); toast('大分類を更新しました');
+  });
+  row.querySelector('#edtCatCancel').addEventListener('click',renderAdmin);
+}
+
+/* 作業の手順書・作業名をインライン編集 */
+function openTaskEdit(id){
+  const t=tasks.find(x=>x.id===id);
+  const rows=$('#taskList').querySelectorAll('.item-row');
+  const idx=tasks.indexOf(t);
+  const row=rows[idx];
+  if(!row)return;
+  row.innerHTML=
+    '<div style="flex:1;display:flex;flex-direction:column;gap:7px">'+
+      '<div class="form-row" style="margin:0">'+
+        '<input type="text" id="edtCode" value="'+esc(t.code||'')+'" placeholder="コード" style="max-width:90px">'+
+        '<input type="text" id="edtName" value="'+esc(t.name)+'" placeholder="作業名">'+
+      '</div>'+
+      '<div class="form-row" style="margin:0">'+
+        '<select id="edtCat" class="sel">'+
+          orderedCats().map(c=>'<option value="'+c.id+'"'+(c.id===t.catId?' selected':'')+'>'+esc(c.code?(c.code+'：'):'')+esc(c.name)+'</option>').join('')+
+        '</select>'+
+      '</div>'+
+      '<div class="form-row" style="margin:0">'+
+        '<label class="cb"><input type="checkbox" id="edtDoc" '+(t.hasDoc?'checked':'')+'>手順書あり</label>'+
+        '<input type="url" id="edtLink" value="'+esc(t.link||'')+'" placeholder="手順書リンク（URL）">'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px;align-items:flex-start">'+
+      '<button class="primary mini-btn" id="edtSave">保存</button>'+
+      '<button class="mini-btn" id="edtCancel">取消</button>'+
+    '</div>';
+  row.querySelector('#edtSave').addEventListener('click',()=>{
+    const nm=row.querySelector('#edtName').value.trim();
+    if(!nm){toast('作業名を入力してください');return;}
+    const newCat=row.querySelector('#edtCat').value;
+    if(newCat!==t.catId){
+      const maxOrder=tasks.filter(x=>x.catId===newCat&&x.id!==t.id).reduce((m,x)=>Math.max(m,x.order||0),0);
+      t.catId=newCat; t.order=maxOrder+1;
+    }
+    t.name=nm; t.code=row.querySelector('#edtCode').value.trim();
+    t.hasDoc=row.querySelector('#edtDoc').checked; t.link=row.querySelector('#edtLink').value.trim();
+    dirty=true; renderAll(); toast('作業を更新しました');
+  });
+  row.querySelector('#edtCancel').addEventListener('click',renderAdmin);
+}
+function nextId(arr,p){let n=0;arr.forEach(x=>{const v=parseInt(x.id.replace(p,''),10);if(v>n)n=v;});return p+String(n+1).padStart(3,'0');}
+$('#addWorker').addEventListener('click',()=>{
+  const name=$('#newWorkerName').value.trim();if(!name){toast('氏名を入力してください');return;}
+  workers.push({id:nextId(workers,'W'),name:name,code:$('#newWorkerCode').value.trim(),active:true});
+  $('#newWorkerName').value='';$('#newWorkerCode').value='';dirty=true;renderAll();toast('作業者を追加しました');
+});
+$('#addTask').addEventListener('click',()=>{
+  const name=$('#newTaskName').value.trim();if(!name){toast('作業名を入力してください');return;}
+  const catId=$('#newTaskCat').value;
+  const maxOrder=tasks.filter(t=>t.catId===catId).reduce((m,t)=>Math.max(m,t.order||0),0);
+  tasks.push({id:nextId(tasks,'T'),code:$('#newTaskCode').value.trim(),name:name,catId:catId,order:maxOrder+1,hasDoc:$('#newTaskDoc').checked,link:$('#newTaskLink').value.trim(),active:true});
+  $('#newTaskCode').value='';$('#newTaskName').value='';$('#newTaskLink').value='';$('#newTaskDoc').checked=false;dirty=true;renderAll();toast('作業を追加しました');
+});
+$('#addCat').addEventListener('click',()=>{
+  const name=$('#newCatName').value.trim();if(!name){toast('大分類名を入力してください');return;}
+  const maxOrder=categories.reduce((m,c)=>Math.max(m,c.order),0);
+  categories.push({id:nextId(categories,'C'),code:$('#newCatCode').value.trim(),name:name,color:$('#newCatColor').value,order:maxOrder+1,active:true});
+  $('#newCatCode').value='';$('#newCatName').value='';dirty=true;renderAll();toast('大分類を追加しました');
+});
+
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  $('#view-'+t.dataset.view).classList.add('active');
+  if(t.dataset.view==='dash')renderDash();
+  if(t.dataset.view==='risk')renderRisk();
+}));
+$('#toggleDisabled').addEventListener('click',()=>{showDisabled=!showDisabled;
+  $('#toggleDisabled').textContent=showDisabled?'無効を隠す':'無効も表示';renderMatrix();});
+$('#snapBtn').addEventListener('click',recordSnapshot);
+$('#radarOverlay').addEventListener('change',drawRadars);
+$('#saveBtn').addEventListener('click',saveData);
+function renderAll(){renderMatrix();renderAdmin();if($('#view-dash').classList.contains('active'))renderDash();if($('#view-risk').classList.contains('active'))renderRisk();}
+
+/* ▼▼▼ ここにGASのデプロイURLを貼ると保存が有効になります ▼▼▼
+   例：const GAS_URL='https://script.google.com/macros/s/XXXXX/exec';
+   空のままだとローカルモード（保存されない試作）で動きます。 */
+const GAS_URL='https://script.google.com/a/macros/horizon.co.jp/s/AKfycbwygMEpwLkfEJ1iUQPFJlorTJRZMj7uFGOJA3SHVMjuv4Ot600UjMJ1sI2jYxRS6X1CLw/exec';
+async function loadData(){
+  if(!GAS_URL){renderAll();return;}
+  try{
+    const res=await fetch(GAS_URL+'?action=load');
+    const d=await res.json();
+    // 一度も保存していない（全部空）の場合は、初期サンプルを残して案内
+    const empty=(!d.workers||!d.workers.length)&&(!d.tasks||!d.tasks.length);
+    if(empty){
+      $('#statusDot').classList.add('online');
+      $('#statusText').textContent='接続済み・データ未保存（保存ボタンで初回登録）';
+      renderAll();
+      return;
+    }
+    workers=d.workers;tasks=d.tasks;skills=d.skills||{};snapshots=d.snapshots||[];
+    if(d.categories&&d.categories.length)categories=d.categories;
+    $('#statusDot').classList.add('online');
+    $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 読込）';
+    renderAll();
+  }catch(e){toast('読み込みに失敗しました');console.error(e);renderAll();}
+}
+async function saveData(){
+  if(!GAS_URL){toast('ローカルモードのため保存されません');dirty=false;return;}
+  try{
+    $('#saveBtn').textContent='保存中…';
+    const res=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'save',workers:workers,tasks:tasks,skills:skills,snapshots:snapshots,categories:categories})});
+    const r=await res.json();
+    if(r&&r.ok){dirty=false;toast('保存しました');
+      $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';}
+    else{toast('保存に失敗しました（応答エラー）');console.error(r);}
+  }catch(e){toast('保存に失敗しました');console.error(e);}
+  finally{$('#saveBtn').textContent='保存';}
+}
+window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
+loadData();
+</script>
+</body>
+</html>
