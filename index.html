@@ -698,7 +698,10 @@ function renderAdmin(){
   $('#workerList').innerHTML=workers.map(w=>
     '<div class="item-row '+(w.active?'':'disabled')+'">'+
       '<div><strong>'+esc(w.name)+'</strong> <span class="meta">'+esc(w.code||'')+'</span></div>'+
-      '<button class="'+(w.active?'danger':'primary')+' mini-btn" data-act="'+(w.active?'disW':'enW')+'" data-id="'+w.id+'">'+(w.active?'無効化':'復活')+'</button>'+
+      '<div style="display:flex;gap:4px">'+
+        '<button class="'+(w.active?'danger':'primary')+' mini-btn" data-act="'+(w.active?'disW':'enW')+'" data-id="'+w.id+'">'+(w.active?'無効化':'復活')+'</button>'+
+        '<button class="danger mini-btn" data-act="delW" data-id="'+w.id+'">削除</button>'+
+      '</div>'+
     '</div>').join('');
 
   // 大分類一覧（並び順）
@@ -714,6 +717,7 @@ function renderAdmin(){
         '<button class="mini-btn" data-act="dnC" data-id="'+c.id+'" '+(i===cats.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
         '<button class="mini-btn" data-act="editC" data-id="'+c.id+'">編集</button>'+
         '<button class="'+(c.active?'danger':'primary')+' mini-btn" data-act="'+(c.active?'disC':'enC')+'" data-id="'+c.id+'">'+(c.active?'無効化':'復活')+'</button>'+
+        '<button class="danger mini-btn" data-act="delC" data-id="'+c.id+'">削除</button>'+
       '</div>'+
     '</div>').join('');
 
@@ -735,6 +739,7 @@ function renderAdmin(){
           '<button class="mini-btn" data-act="dnT" data-id="'+t.id+'" '+(i===g.tasks.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
           '<button class="mini-btn" data-act="editT" data-id="'+t.id+'">編集</button>'+
           '<button class="'+(t.active?'danger':'primary')+' mini-btn" data-act="'+(t.active?'disT':'enT')+'" data-id="'+t.id+'">'+(t.active?'無効化':'復活')+'</button>'+
+          '<button class="danger mini-btn" data-act="delT" data-id="'+t.id+'">削除</button>'+
         '</div>'+
       '</div>';
     });
@@ -746,18 +751,60 @@ function renderAdmin(){
     if(act==='disW'){const w=workers.find(x=>x.id===id);const cnt=tasks.filter(t=>getLv(t.id,id)>0).length;
       if(confirm(w.name+' さんを無効化します。\n評価記録（'+cnt+'件）は残したまま一覧から非表示になります。よろしいですか？')){w.active=false;dirty=true;}}
     else if(act==='enW'){workers.find(x=>x.id===id).active=true;dirty=true;}
+    else if(act==='delW'){deleteWorker(id);return;}
     else if(act==='disT'){const t=tasks.find(x=>x.id===id);
       if(confirm('作業「'+t.name+'」を無効化します。\n評価記録は残したまま一覧から非表示になります。よろしいですか？')){t.active=false;dirty=true;}}
     else if(act==='enT'){tasks.find(x=>x.id===id).active=true;dirty=true;}
+    else if(act==='delT'){deleteTask(id);return;}
     else if(act==='upT'||act==='dnT'){moveTask(id,act==='upT'?-1:1);return;}
     else if(act==='editT'){openTaskEdit(id);return;}
     else if(act==='disC'){const c=categories.find(x=>x.id===id);const cnt=tasks.filter(t=>t.catId===id&&t.active).length;
       if(confirm('大分類「'+c.name+'」を無効化します。\n属する作業 '+cnt+' 件は「未分類」として表示されます（評価記録は保持）。よろしいですか？')){c.active=false;dirty=true;}}
     else if(act==='enC'){categories.find(x=>x.id===id).active=true;dirty=true;}
+    else if(act==='delC'){deleteCat(id);return;}
     else if(act==='upC'||act==='dnC'){moveCat(id,act==='upC'?-1:1);return;}
     else if(act==='editC'){openCatEdit(id);return;}
     renderAll();
   }));
+}
+
+/* =========================================================
+   削除（評価記録も連動して掃除。無効化と違い元に戻せない）
+   ========================================================= */
+// 指定作業の評価記録を全削除
+function purgeTaskSkills(tid){
+  Object.keys(skills).forEach(k=>{ if(k.indexOf(tid+'|')===0) delete skills[k]; });
+}
+// 作業者を削除（その人の全評価記録・スナップショット内の合計も掃除）
+function deleteWorker(id){
+  const w=workers.find(x=>x.id===id); if(!w)return;
+  const cnt=tasks.filter(t=>getLv(t.id,id)>0).length;
+  if(!confirm(w.name+' さんを完全に削除します。\n評価記録（'+cnt+'件）も削除され、元に戻せません。よろしいですか？'))return;
+  workers=workers.filter(x=>x.id!==id);
+  Object.keys(skills).forEach(k=>{ if(k.slice(-id.length-1)==='|'+id) delete skills[k]; });
+  snapshots.forEach(s=>{ if(s.totals) delete s.totals[id]; });
+  dirty=true; renderAll(); toast('作業者を削除しました');
+}
+// 作業（中分類）を削除（その作業の全評価記録も掃除）
+function deleteTask(id){
+  const t=tasks.find(x=>x.id===id); if(!t)return;
+  if(!confirm('作業「'+t.name+'」を完全に削除します。\n全員ぶんの評価記録も削除され、元に戻せません。よろしいですか？'))return;
+  tasks=tasks.filter(x=>x.id!==id);
+  purgeTaskSkills(id);
+  dirty=true; renderAll(); toast('作業を削除しました');
+}
+// 大分類を削除（属する作業とその評価記録もまとめて削除）
+function deleteCat(id){
+  const c=categories.find(x=>x.id===id); if(!c)return;
+  const ts=tasks.filter(t=>t.catId===id);
+  let msg='大分類「'+c.name+'」を完全に削除します。';
+  if(ts.length)msg+='\n属する作業 '+ts.length+' 件と、その評価記録もすべて削除されます。';
+  msg+='\n元に戻せません。よろしいですか？';
+  if(!confirm(msg))return;
+  ts.forEach(t=>purgeTaskSkills(t.id));
+  tasks=tasks.filter(t=>t.catId!==id);
+  categories=categories.filter(x=>x.id!==id);
+  dirty=true; renderAll(); toast('大分類を削除しました');
 }
 
 /* 作業（中分類）の並び替え：同じ大分類グループ内で前後と入れ替え */
