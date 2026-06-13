@@ -1257,9 +1257,12 @@ async function saveData(){
   }finally{$('#saveBtn').textContent='保存';}
 }
 async function syncAvatars(){
-  for(const w of workers){
-    await jsonp({action:'saveAvatar',workerId:w.id,avatarDataUrl:w.avatarDataUrl||''});
-  }
+  await Promise.all(workers.map(w=>fetch(GAS_URL,{
+    method:'POST',
+    mode:'no-cors',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'saveAvatar',workerId:w.id,avatarDataUrl:w.avatarDataUrl||''})
+  }).catch(e=>console.warn('avatar save failed',w.id,e))));
 }
 function saveOk(){
   rememberWorkerAvatars();
