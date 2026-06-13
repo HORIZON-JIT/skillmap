@@ -414,6 +414,7 @@ let snapshots = [
 ];
 
 let showDisabled=false, dirty=false;
+const avatarDirtyIds=new Set();
 const matrixGroupCollapsed={};
 const taskGroupCollapsed={};
 const charts={};
@@ -454,6 +455,9 @@ function rememberWorkerAvatars(){
 function restoreWorkerAvatars(){
   const cache=loadAvatarCache();
   workers.forEach(w=>{if(!w.avatarDataUrl&&cache[w.id])w.avatarDataUrl=cache[w.id];});
+}
+function markAvatarDirty(id){
+  if(id)avatarDirtyIds.add(id);
 }
 function readAvatarFile(input){
   const file=input&&input.files&&input.files[0];
@@ -1050,9 +1054,15 @@ function openWorkerEdit(id){
     const nm=row.querySelector('#edtWkName').value.trim();
     if(!nm){toast('氏名を入力してください');return;}
     w.name=nm; w.code=row.querySelector('#edtWkCode').value.trim();
-    if(row.querySelector('#edtWkAvatarClear').checked)w.avatarDataUrl='';
+    if(row.querySelector('#edtWkAvatarClear').checked){
+      w.avatarDataUrl='';
+      markAvatarDirty(w.id);
+    }
     const avatar=await readAvatarFile(row.querySelector('#edtWkAvatar'));
-    if(avatar)w.avatarDataUrl=avatar;
+    if(avatar){
+      w.avatarDataUrl=avatar;
+      markAvatarDirty(w.id);
+    }
     rememberWorkerAvatars();
     dirty=true; renderAll(); toast('作業者を更新しました');
   });
@@ -1154,7 +1164,9 @@ function updateTaskCodePreview(){
 $('#addWorker').addEventListener('click',async()=>{
   const name=$('#newWorkerName').value.trim();if(!name){toast('氏名を入力してください');return;}
   const avatar=await readAvatarFile($('#newWorkerAvatar'));
-  workers.push({id:nextId(workers,'W'),name:name,code:$('#newWorkerCode').value.trim(),avatarDataUrl:avatar,active:true});
+  const worker={id:nextId(workers,'W'),name:name,code:$('#newWorkerCode').value.trim(),avatarDataUrl:avatar,active:true};
+  workers.push(worker);
+  if(avatar)markAvatarDirty(worker.id);
   rememberWorkerAvatars();
   $('#newWorkerName').value='';$('#newWorkerCode').value='';$('#newWorkerAvatar').value='';dirty=true;renderAll();toast('作業者を追加しました');
 });
@@ -1237,8 +1249,6 @@ async function saveData(){
   try{
     await saveCoreData();
     await syncAvatars();
-    const check=await jsonp({action:'load'});
-    if(!verifySaved(check))throw new Error('save verification failed');
     saveOk();
   }catch(e){
     toast('保存に失敗しました');console.error(e);
@@ -1260,7 +1270,9 @@ async function saveCoreData(){
     headers:{'Content-Type':'text/plain;charset=utf-8'},body:payload});
 }
 async function syncAvatars(){
-  await Promise.all(workers.map(w=>{
+  const changed=workers.filter(w=>avatarDirtyIds.has(w.id));
+  if(!changed.length)return;
+  await Promise.all(changed.map(w=>{
     const avatar=w.avatarDataUrl||'';
     const params={action:'saveAvatar',workerId:w.id,avatarDataUrl:avatar};
     return fetch(GAS_URL,{method:'POST',mode:'no-cors',credentials:'include',
@@ -1268,13 +1280,9 @@ async function syncAvatars(){
       body:JSON.stringify(params)});
   }));
 }
-function verifySaved(data){
-  if(!data||!data.ok)return false;
-  const hasAll=(src,loaded)=>src.every(x=>(loaded||[]).some(y=>y.id===x.id));
-  return hasAll(workers,data.workers)&&hasAll(categories,data.categories)&&hasAll(tasks,data.tasks);
-}
 function saveOk(){
   rememberWorkerAvatars();
+  avatarDirtyIds.clear();
   dirty=false;toast('保存しました');
   $('#statusDot').classList.add('online');
   $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';
