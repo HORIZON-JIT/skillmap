@@ -1238,7 +1238,7 @@ async function saveData(){
     await saveCoreData();
     await syncAvatars();
     const check=await jsonp({action:'load'});
-    if(!check||!check.ok)throw new Error('save verification failed');
+    if(!verifySaved(check))throw new Error('save verification failed');
     saveOk();
   }catch(e){
     toast('保存に失敗しました');console.error(e);
@@ -1248,43 +1248,30 @@ async function saveCoreData(){
   const workersForSave=workers.map(w=>({
     id:w.id,name:w.name,code:w.code||'',active:w.active
   }));
-  await jsonp({action:'saveWorkers',payload:JSON.stringify(workersForSave)});
-  await jsonp({action:'saveCategories',payload:JSON.stringify(categories)});
-  await jsonp({action:'saveTasks',payload:JSON.stringify(tasks)});
-  await saveSkills();
-  await jsonp({action:'saveSnapshots',payload:JSON.stringify(snapshots)});
-}
-async function saveSkills(){
-  const rows=Object.keys(skills).map(key=>{
-    const parts=key.split('|');
-    return [parts[0]||'',parts[1]||'',Number(skills[key]||0)];
+  const payload=JSON.stringify({
+    action:'save',
+    workers:workersForSave,
+    categories:categories,
+    tasks:tasks,
+    skills:skills,
+    snapshots:snapshots
   });
-  const chunkSize=120;
-  if(!rows.length){
-    await jsonp({action:'saveSkills',mode:'replace',payload:'[]'});
-    return;
-  }
-  for(let i=0;i<rows.length;i+=chunkSize){
-    await jsonp({
-      action:'saveSkills',
-      mode:i===0?'replace':'append',
-      payload:JSON.stringify(rows.slice(i,i+chunkSize))
-    });
-  }
+  await fetch(GAS_URL,{method:'POST',mode:'no-cors',credentials:'include',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},body:payload});
 }
 async function syncAvatars(){
-  for(const w of workers){
+  await Promise.all(workers.map(w=>{
     const avatar=w.avatarDataUrl||'';
     const params={action:'saveAvatar',workerId:w.id,avatarDataUrl:avatar};
-    const urlLength=(GAS_URL+'?'+Object.keys(params).map(k=>k+'='+encodeURIComponent(params[k])).join('&')).length;
-    if(urlLength<7000){
-      await jsonp(params);
-    }else{
-      await fetch(GAS_URL,{method:'POST',mode:'no-cors',
-        headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body:JSON.stringify(params)});
-    }
-  }
+    return fetch(GAS_URL,{method:'POST',mode:'no-cors',credentials:'include',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(params)});
+  }));
+}
+function verifySaved(data){
+  if(!data||!data.ok)return false;
+  const hasAll=(src,loaded)=>src.every(x=>(loaded||[]).some(y=>y.id===x.id));
+  return hasAll(workers,data.workers)&&hasAll(categories,data.categories)&&hasAll(tasks,data.tasks);
 }
 function saveOk(){
   rememberWorkerAvatars();
