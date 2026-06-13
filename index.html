@@ -1233,28 +1233,58 @@ async function loadData(){
 async function saveData(){
   if(!GAS_URL){toast('ローカルモードのため保存されません');dirty=false;return;}
   rememberWorkerAvatars();
-  const workersForSave=workers.map(w=>({
-    id:w.id,name:w.name,code:w.code||'',active:w.active
-  }));
-  const payload={action:'save',workers:workersForSave,categories:categories,tasks:tasks,skills:skills,snapshots:snapshots};
-  const body=JSON.stringify(payload);
   $('#saveBtn').textContent='保存中…';
   try{
-    await fetch(GAS_URL,{method:'POST',mode:'no-cors',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},body:body});
+    await saveCoreData();
     await syncAvatars();
+    const check=await jsonp({action:'load'});
+    if(!check||!check.ok)throw new Error('save verification failed');
     saveOk();
   }catch(e){
     toast('保存に失敗しました');console.error(e);
   }finally{$('#saveBtn').textContent='保存';}
 }
+async function saveCoreData(){
+  const workersForSave=workers.map(w=>({
+    id:w.id,name:w.name,code:w.code||'',active:w.active
+  }));
+  await jsonp({action:'saveWorkers',payload:JSON.stringify(workersForSave)});
+  await jsonp({action:'saveCategories',payload:JSON.stringify(categories)});
+  await jsonp({action:'saveTasks',payload:JSON.stringify(tasks)});
+  await saveSkills();
+  await jsonp({action:'saveSnapshots',payload:JSON.stringify(snapshots)});
+}
+async function saveSkills(){
+  const rows=Object.keys(skills).map(key=>{
+    const parts=key.split('|');
+    return [parts[0]||'',parts[1]||'',Number(skills[key]||0)];
+  });
+  const chunkSize=120;
+  if(!rows.length){
+    await jsonp({action:'saveSkills',mode:'replace',payload:'[]'});
+    return;
+  }
+  for(let i=0;i<rows.length;i+=chunkSize){
+    await jsonp({
+      action:'saveSkills',
+      mode:i===0?'replace':'append',
+      payload:JSON.stringify(rows.slice(i,i+chunkSize))
+    });
+  }
+}
 async function syncAvatars(){
-  await Promise.all(workers.map(w=>fetch(GAS_URL,{
-    method:'POST',
-    mode:'no-cors',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body:JSON.stringify({action:'saveAvatar',workerId:w.id,avatarDataUrl:w.avatarDataUrl||''})
-  }).catch(e=>console.warn('avatar save failed',w.id,e))));
+  for(const w of workers){
+    const avatar=w.avatarDataUrl||'';
+    const params={action:'saveAvatar',workerId:w.id,avatarDataUrl:avatar};
+    const urlLength=(GAS_URL+'?'+Object.keys(params).map(k=>k+'='+encodeURIComponent(params[k])).join('&')).length;
+    if(urlLength<7000){
+      await jsonp(params);
+    }else{
+      await fetch(GAS_URL,{method:'POST',mode:'no-cors',
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify(params)});
+    }
+  }
 }
 function saveOk(){
   rememberWorkerAvatars();

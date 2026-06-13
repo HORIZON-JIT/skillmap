@@ -35,6 +35,26 @@ function doGet(e) {
       saveAll(data);
       return respond({ ok: true, version: VERSION }, callback);
     }
+    if (action === 'saveWorkers') {
+      saveWorkers(safeParse_(params.payload || '[]'));
+      return respond({ ok: true, version: VERSION }, callback);
+    }
+    if (action === 'saveCategories') {
+      saveCategories(safeParse_(params.payload || '[]'));
+      return respond({ ok: true, version: VERSION }, callback);
+    }
+    if (action === 'saveTasks') {
+      saveTasks(safeParse_(params.payload || '[]'));
+      return respond({ ok: true, version: VERSION }, callback);
+    }
+    if (action === 'saveSkills') {
+      saveSkillRows(safeParse_(params.payload || '[]'), params.mode || 'replace');
+      return respond({ ok: true, version: VERSION }, callback);
+    }
+    if (action === 'saveSnapshots') {
+      saveSnapshots(safeParse_(params.payload || '[]'));
+      return respond({ ok: true, version: VERSION }, callback);
+    }
     if (action === 'saveAvatar') {
       saveAvatar(params.workerId, params.avatarDataUrl || '');
       return respond({ ok: true, version: VERSION }, callback);
@@ -125,10 +145,22 @@ function loadAll() {
 
 function saveAll(data) {
   setupSheets();
+  saveWorkers(data.workers || []);
+  saveCategories(data.categories || []);
+  saveTasks(data.tasks || []);
+  const skillRows = Object.keys(data.skills || {}).map(key => {
+    const parts = key.split('|');
+    return [parts[0] || '', parts[1] || '', Number(data.skills[key] || 0)];
+  });
+  saveSkillRows(skillRows, 'replace');
+  saveSnapshots(data.snapshots || []);
+}
+
+function saveWorkers(workers) {
+  setupSheets();
   const ss = getSpreadsheet_();
   const avatarMap = readWorkerAvatarMap_(ss);
-
-  writeSheet_(ss, SHEETS.workers, HEADERS.Workers, (data.workers || []).map(w => [
+  writeSheet_(ss, SHEETS.workers, HEADERS.Workers, (workers || []).map(w => [
     w.id || '',
     w.name || '',
     w.code || '',
@@ -137,8 +169,12 @@ function saveAll(data) {
       ? (w.avatarDataUrl || '')
       : (avatarMap[w.id] || ''),
   ]));
+}
 
-  writeSheet_(ss, SHEETS.categories, HEADERS.Categories, (data.categories || []).map(c => [
+function saveCategories(categories) {
+  setupSheets();
+  const ss = getSpreadsheet_();
+  writeSheet_(ss, SHEETS.categories, HEADERS.Categories, (categories || []).map(c => [
     c.id || '',
     c.code || '',
     c.name || '',
@@ -146,8 +182,12 @@ function saveAll(data) {
     Number(c.order || 0),
     c.active !== false,
   ]));
+}
 
-  writeSheet_(ss, SHEETS.tasks, HEADERS.Tasks, (data.tasks || []).map(t => [
+function saveTasks(tasks) {
+  setupSheets();
+  const ss = getSpreadsheet_();
+  writeSheet_(ss, SHEETS.tasks, HEADERS.Tasks, (tasks || []).map(t => [
     t.id || '',
     t.code || '',
     t.name || '',
@@ -157,14 +197,25 @@ function saveAll(data) {
     t.link || '',
     t.active !== false,
   ]));
+}
 
-  const skillRows = Object.keys(data.skills || {}).map(key => {
-    const parts = key.split('|');
-    return [parts[0] || '', parts[1] || '', Number(data.skills[key] || 0)];
-  });
-  writeSheet_(ss, SHEETS.skills, HEADERS.Skills, skillRows);
+function saveSkillRows(rows, mode) {
+  setupSheets();
+  const ss = getSpreadsheet_();
+  const normalized = (rows || []).map(row => Array.isArray(row)
+    ? [row[0] || '', row[1] || '', Number(row[2] || 0)]
+    : [row.taskId || '', row.workerId || '', Number(row.level || 0)]);
+  if (mode === 'append') {
+    appendSheetRows_(ss, SHEETS.skills, HEADERS.Skills, normalized);
+  } else {
+    writeSheet_(ss, SHEETS.skills, HEADERS.Skills, normalized);
+  }
+}
 
-  writeSheet_(ss, SHEETS.snapshots, HEADERS.Snapshots, (data.snapshots || []).map(s => [
+function saveSnapshots(snapshots) {
+  setupSheets();
+  const ss = getSpreadsheet_();
+  writeSheet_(ss, SHEETS.snapshots, HEADERS.Snapshots, (snapshots || []).map(s => [
     s.month || '',
     Number(s.fill || 0),
     Number(s.risk || 0),
@@ -223,6 +274,14 @@ function writeSheet_(ss, name, headers, rows) {
   sheet.clearContents();
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (rows.length) sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  sheet.setFrozenRows(1);
+}
+
+function appendSheetRows_(ss, name, headers, rows) {
+  if (!rows.length) return;
+  const sheet = ensureSheet_(ss, name, headers);
+  ensureHeaders_(sheet, headers);
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
   sheet.setFrozenRows(1);
 }
 
