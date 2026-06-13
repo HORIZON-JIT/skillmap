@@ -195,10 +195,10 @@
 
 <div class="view active" id="view-matrix">
   <div class="legend">
-    <span><i class="chip lv0"></i>0：未経験</span>
-    <span><i class="chip lv1"></i>1：手順書を見ればできる</span>
-    <span><i class="chip lv2"></i>2：スポットで質問すればできる</span>
-    <span><i class="chip lv3"></i>3：完全マスター</span>
+    <span><i class="chip lv0"></i>0：対応不可</span>
+    <span><i class="chip lv1"></i>1：手順書に沿って対応可能</span>
+    <span><i class="chip lv2"></i>2：概ね対応可能（トラブル除く）</span>
+    <span><i class="chip lv3"></i>3：マスター（教育・手順書作成可能）</span>
     <span style="margin-left:auto"><i class="risk-tag">属人化</i>：レベル3が1人以下</span>
     <button class="mini-btn" id="toggleDisabled" style="margin-left:8px">無効も表示</button>
   </div>
@@ -242,7 +242,7 @@
 
   <div class="card" style="padding:18px 20px;margin-bottom:20px">
     <h3 style="font-size:15px;margin-bottom:2px">改善優先リスト</h3>
-    <div class="desc" style="font-size:11.5px;color:var(--ink-dim);margin-bottom:14px">属人化スコアが高い順。スコアは「完全習熟者の少なさ・対応可能者の少なさ・手順書の有無」から算出（高いほど危険）</div>
+    <div class="desc" style="font-size:11.5px;color:var(--ink-dim);margin-bottom:14px">属人化スコアが高い順。スコアは「マスターの少なさ・対応可能者の少なさ・手順書の有無」から算出（高いほど危険）</div>
     <div id="riskList"></div>
   </div>
 
@@ -568,7 +568,7 @@ function riskAction(t){
     const cand=aw.filter(w=>getLv(t.id,w.id)===2);
     if(cand.length){
       return {who:cand.map(w=>w.name), from:2, to:3,
-        text:'を完全マスター(3)へ。'+(r.masters===0?'習熟者ゼロを解消':'2人目の習熟者を確保')};
+        text:'をマスター(3)へ。'+(r.masters===0?'マスターゼロを解消':'2人目のマスターを確保')};
     }
     // レベル2もいなければ、レベル1の人を2へ
     const c1=aw.filter(w=>getLv(t.id,w.id)===1);
@@ -604,14 +604,14 @@ function renderRisk(){
   $('#riskKpi').innerHTML=
     '<div class="kpi warn"><div class="label">重大リスク作業</div><div class="value">'+critical+'<span class="unit">件</span></div><div class="foot">最優先で着手</div></div>'+
     '<div class="kpi"><div class="label">高リスク作業</div><div class="value">'+high+'<span class="unit">件</span></div><div class="foot">早期の育成が必要</div></div>'+
-    '<div class="kpi warn"><div class="label">習熟者ゼロの作業</div><div class="value">'+noMaster+'<span class="unit">件</span></div><div class="foot">レベル3が誰もいない</div></div>'+
+    '<div class="kpi warn"><div class="label">マスターゼロの作業</div><div class="value">'+noMaster+'<span class="unit">件</span></div><div class="foot">レベル3が誰もいない</div></div>'+
     '<div class="kpi"><div class="label">手順書なし</div><div class="value">'+noDoc+'<span class="unit">件</span></div><div class="foot">引き継ぎ困難の要因</div></div>';
 
   // 改善優先リスト
   $('#riskList').innerHTML=ranked.map((x,i)=>{
     const t=x.t, r=x.r, a=x.a;
     const facts=[
-      '完全習熟者 <span class="'+(r.masters<=1?'risk-fact-bad':'')+'">'+r.masters+'人</span>',
+      'マスター <span class="'+(r.masters<=1?'risk-fact-bad':'')+'">'+r.masters+'人</span>',
       '対応可能 <span class="'+(r.able<=1?'risk-fact-bad':'')+'">'+r.able+'人</span>',
       (t.hasDoc?'手順書あり':'<span class="risk-fact-bad">手順書なし</span>')
     ].join('');
