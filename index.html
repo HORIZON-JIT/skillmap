@@ -434,6 +434,27 @@ function workerAvatarHtml(w,i,cls){
   }
   return '<span class="'+cls+'" style="background:'+color+'">'+esc(workerInitial(w.name))+'</span>';
 }
+const AVATAR_CACHE_KEY='skillmap_worker_avatars_v1';
+function loadAvatarCache(){
+  try{return JSON.parse(localStorage.getItem(AVATAR_CACHE_KEY)||'{}');}
+  catch(_){return {};}
+}
+function saveAvatarCache(cache){
+  try{localStorage.setItem(AVATAR_CACHE_KEY,JSON.stringify(cache));}
+  catch(e){console.warn('avatar cache save failed',e);}
+}
+function rememberWorkerAvatars(){
+  const cache=loadAvatarCache();
+  workers.forEach(w=>{
+    if(w.avatarDataUrl)cache[w.id]=w.avatarDataUrl;
+    else delete cache[w.id];
+  });
+  saveAvatarCache(cache);
+}
+function restoreWorkerAvatars(){
+  const cache=loadAvatarCache();
+  workers.forEach(w=>{if(!w.avatarDataUrl&&cache[w.id])w.avatarDataUrl=cache[w.id];});
+}
 function readAvatarFile(input){
   const file=input&&input.files&&input.files[0];
   if(!file)return Promise.resolve('');
@@ -449,16 +470,16 @@ function readAvatarFile(input){
       const img=new Image();
       img.onerror=()=>reject(new Error('image load failed'));
       img.onload=()=>{
-        const size=96;
+        const size=80;
         const canvas=document.createElement('canvas');
         canvas.width=size;canvas.height=size;
         const ctx=canvas.getContext('2d');
         const side=Math.min(img.width,img.height);
         const sx=(img.width-side)/2, sy=(img.height-side)/2;
-        ctx.clearRect(0,0,size,size);
+        ctx.fillStyle='#ffffff';
+        ctx.fillRect(0,0,size,size);
         ctx.drawImage(img,sx,sy,side,side,0,0,size,size);
-        const type=file.type==='image/png'?'image/png':'image/jpeg';
-        resolve(canvas.toDataURL(type,type==='image/jpeg'?0.84:undefined));
+        resolve(canvas.toDataURL('image/jpeg',0.78));
       };
       img.src=reader.result;
     };
@@ -941,6 +962,7 @@ function deleteWorker(id){
   workers=workers.filter(x=>x.id!==id);
   Object.keys(skills).forEach(k=>{ if(k.slice(-id.length-1)==='|'+id) delete skills[k]; });
   snapshots.forEach(s=>{ if(s.totals) delete s.totals[id]; });
+  rememberWorkerAvatars();
   dirty=true; renderAll(); toast('作業者を削除しました');
 }
 // 作業（中分類）を削除（その作業の全評価記録も掃除）
@@ -1031,6 +1053,7 @@ function openWorkerEdit(id){
     if(row.querySelector('#edtWkAvatarClear').checked)w.avatarDataUrl='';
     const avatar=await readAvatarFile(row.querySelector('#edtWkAvatar'));
     if(avatar)w.avatarDataUrl=avatar;
+    rememberWorkerAvatars();
     dirty=true; renderAll(); toast('作業者を更新しました');
   });
   row.querySelector('#edtWkCancel').addEventListener('click',renderAdmin);
@@ -1132,6 +1155,7 @@ $('#addWorker').addEventListener('click',async()=>{
   const name=$('#newWorkerName').value.trim();if(!name){toast('氏名を入力してください');return;}
   const avatar=await readAvatarFile($('#newWorkerAvatar'));
   workers.push({id:nextId(workers,'W'),name:name,code:$('#newWorkerCode').value.trim(),avatarDataUrl:avatar,active:true});
+  rememberWorkerAvatars();
   $('#newWorkerName').value='';$('#newWorkerCode').value='';$('#newWorkerAvatar').value='';dirty=true;renderAll();toast('作業者を追加しました');
 });
 $('#addTask').addEventListener('click',()=>{
@@ -1198,6 +1222,7 @@ async function loadData(){
       renderAll();return;
     }
     workers=d.workers;tasks=d.tasks;skills=d.skills||{};snapshots=d.snapshots||[];
+    restoreWorkerAvatars();
     if(d.categories&&d.categories.length)categories=d.categories;
     $('#statusDot').classList.add('online');
     $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 読込）';
@@ -1207,6 +1232,7 @@ async function loadData(){
 
 async function saveData(){
   if(!GAS_URL){toast('ローカルモードのため保存されません');dirty=false;return;}
+  rememberWorkerAvatars();
   const payload={action:'save',workers:workers,categories:categories,tasks:tasks,skills:skills,snapshots:snapshots};
   const body=JSON.stringify(payload);
   $('#saveBtn').textContent='保存中…';
@@ -1228,6 +1254,7 @@ async function saveData(){
   }finally{$('#saveBtn').textContent='保存';}
 }
 function saveOk(){
+  rememberWorkerAvatars();
   dirty=false;toast('保存しました');
   $('#statusDot').classList.add('online');
   $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';
