@@ -1,4 +1,4 @@
-const VERSION = 'avatar-2026-06-14-post';
+const VERSION = 'partial-save-2026-06-14';
 
 const SHEETS = {
   workers: 'Workers',
@@ -71,6 +71,10 @@ function doPost(e) {
     const action = data.action || 'save';
     if (action === 'save') {
       saveAll(data);
+      return respond({ ok: true, version: VERSION });
+    }
+    if (action === 'savePartial') {
+      savePartial(data);
       return respond({ ok: true, version: VERSION });
     }
     if (action === 'saveAvatar') {
@@ -154,6 +158,29 @@ function saveAll(data) {
   });
   saveSkillRows(skillRows, 'replace');
   saveSnapshots(data.snapshots || []);
+}
+
+function savePartial(data) {
+  setupSheets();
+  if (Object.prototype.hasOwnProperty.call(data, 'workers')) {
+    saveWorkers(data.workers || []);
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'categories')) {
+    saveCategories(data.categories || []);
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'tasks')) {
+    saveTasks(data.tasks || []);
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'skills')) {
+    const skillRows = Object.keys(data.skills || {}).map(key => {
+      const parts = key.split('|');
+      return [parts[0] || '', parts[1] || '', Number(data.skills[key] || 0)];
+    });
+    saveSkillRows(skillRows, 'replace');
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'snapshots')) {
+    saveSnapshots(data.snapshots || []);
+  }
 }
 
 function saveWorkers(workers) {

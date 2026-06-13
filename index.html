@@ -414,6 +414,7 @@ let snapshots = [
 ];
 
 let showDisabled=false, dirty=false;
+const dirtyKeys=new Set();
 const avatarDirtyIds=new Set();
 const matrixGroupCollapsed={};
 const taskGroupCollapsed={};
@@ -424,6 +425,10 @@ const getLv=(t,w)=>skills[skey(t,w)]??0;
 const esc=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);};
 const catName=id=>{const c=categories.find(x=>x.id===id);return c?c.name:'未分類';};
+function markDirty(){
+  dirty=true;
+  Array.from(arguments).forEach(k=>dirtyKeys.add(k));
+}
 function workerInitial(name){
   const s=String(name||'').replace(/\s+/g,'').trim();
   return s ? Array.from(s)[0] : '?';
@@ -594,7 +599,7 @@ function renderMatrix(){
   html+='<td></td></tr></tbody>';
   $('#matrix').innerHTML=html;
   $('#matrix').querySelectorAll('.cell').forEach(c=>c.addEventListener('click',()=>{
-    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;dirty=true;renderMatrix();
+    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;markDirty('skills');renderMatrix();
   }));
   $('#matrix').querySelectorAll('.matrix-cat-toggle').forEach(b=>b.addEventListener('click',e=>{
     e.stopPropagation();
@@ -853,7 +858,7 @@ function recordSnapshot(){
     snapshots.push(rec);
     snapshots.sort((a,b)=>a.month.localeCompare(b.month));
   }
-  dirty=true;
+  markDirty('snapshots');
   toast(month+' のスナップショットを記録しました');
   renderDash();
 }
@@ -930,20 +935,20 @@ function renderAdmin(){
     const id=b.dataset.id,act=b.dataset.act;
     if(act==='toggleTaskGroup'){taskGroupCollapsed[id]=!taskGroupCollapsed[id];renderAdmin();return;}
     if(act==='disW'){const w=workers.find(x=>x.id===id);const cnt=tasks.filter(t=>getLv(t.id,id)>0).length;
-      if(confirm(w.name+' さんを無効化します。\n評価記録（'+cnt+'件）は残したまま一覧から非表示になります。よろしいですか？')){w.active=false;dirty=true;}}
-    else if(act==='enW'){workers.find(x=>x.id===id).active=true;dirty=true;}
+      if(confirm(w.name+' さんを無効化します。\n評価記録（'+cnt+'件）は残したまま一覧から非表示になります。よろしいですか？')){w.active=false;markDirty('workers');}}
+    else if(act==='enW'){workers.find(x=>x.id===id).active=true;markDirty('workers');}
     else if(act==='delW'){deleteWorker(id);return;}
     else if(act==='upW'||act==='dnW'){moveWorker(id,act==='upW'?-1:1);return;}
     else if(act==='editW'){openWorkerEdit(id);return;}
     else if(act==='disT'){const t=tasks.find(x=>x.id===id);
-      if(confirm('作業「'+t.name+'」を無効化します。\n評価記録は残したまま一覧から非表示になります。よろしいですか？')){t.active=false;dirty=true;}}
-    else if(act==='enT'){tasks.find(x=>x.id===id).active=true;dirty=true;}
+      if(confirm('作業「'+t.name+'」を無効化します。\n評価記録は残したまま一覧から非表示になります。よろしいですか？')){t.active=false;markDirty('tasks');}}
+    else if(act==='enT'){tasks.find(x=>x.id===id).active=true;markDirty('tasks');}
     else if(act==='delT'){deleteTask(id);return;}
     else if(act==='upT'||act==='dnT'){moveTask(id,act==='upT'?-1:1);return;}
     else if(act==='editT'){openTaskEdit(id);return;}
     else if(act==='disC'){const c=categories.find(x=>x.id===id);const cnt=tasks.filter(t=>t.catId===id&&t.active).length;
-      if(confirm('大分類「'+c.name+'」を無効化します。\n属する作業 '+cnt+' 件は「未分類」として表示されます（評価記録は保持）。よろしいですか？')){c.active=false;dirty=true;}}
-    else if(act==='enC'){categories.find(x=>x.id===id).active=true;dirty=true;}
+      if(confirm('大分類「'+c.name+'」を無効化します。\n属する作業 '+cnt+' 件は「未分類」として表示されます（評価記録は保持）。よろしいですか？')){c.active=false;markDirty('categories');}}
+    else if(act==='enC'){categories.find(x=>x.id===id).active=true;markDirty('categories');}
     else if(act==='delC'){deleteCat(id);return;}
     else if(act==='upC'||act==='dnC'){moveCat(id,act==='upC'?-1:1);return;}
     else if(act==='editC'){openCatEdit(id);return;}
@@ -967,7 +972,7 @@ function deleteWorker(id){
   Object.keys(skills).forEach(k=>{ if(k.slice(-id.length-1)==='|'+id) delete skills[k]; });
   snapshots.forEach(s=>{ if(s.totals) delete s.totals[id]; });
   rememberWorkerAvatars();
-  dirty=true; renderAll(); toast('作業者を削除しました');
+  markDirty('workers','skills','snapshots'); renderAll(); toast('作業者を削除しました');
 }
 // 作業（中分類）を削除（その作業の全評価記録も掃除）
 function deleteTask(id){
@@ -975,7 +980,7 @@ function deleteTask(id){
   if(!confirm('作業「'+t.name+'」を完全に削除します。\n全員ぶんの評価記録も削除され、元に戻せません。よろしいですか？'))return;
   tasks=tasks.filter(x=>x.id!==id);
   purgeTaskSkills(id);
-  dirty=true; renderAll(); toast('作業を削除しました');
+  markDirty('tasks','skills'); renderAll(); toast('作業を削除しました');
 }
 // 大分類を削除（属する作業とその評価記録もまとめて削除）
 function deleteCat(id){
@@ -988,7 +993,7 @@ function deleteCat(id){
   ts.forEach(t=>purgeTaskSkills(t.id));
   tasks=tasks.filter(t=>t.catId!==id);
   categories=categories.filter(x=>x.id!==id);
-  dirty=true; renderAll(); toast('大分類を削除しました');
+  markDirty('categories','tasks','skills'); renderAll(); toast('大分類を削除しました');
 }
 
 /* 作業（中分類）の並び替え：同じ大分類グループ内で前後と入れ替え */
@@ -1006,7 +1011,7 @@ function moveTask(id,dir){
   if(j<0||j>=grp.length)return;
   const a=grp[i],b=grp[j];
   const tmp=a.order; a.order=b.order; b.order=tmp;
-  dirty=true; renderAll();
+  markDirty('tasks'); renderAll();
 }
 
 /* 作業者の並び替え：配列の並び順がそのまま全画面（マトリクス・グラフ等）の表示順になる */
@@ -1015,7 +1020,7 @@ function moveWorker(id,dir){
   const j=i+dir;
   if(j<0||j>=workers.length)return;
   const tmp=workers[i]; workers[i]=workers[j]; workers[j]=tmp;
-  dirty=true; renderAll();
+  markDirty('workers'); renderAll();
 }
 
 /* 大分類の並び替え */
@@ -1026,7 +1031,7 @@ function moveCat(id,dir){
   if(j<0||j>=cats.length)return;
   const a=cats[i],b=cats[j];
   const tmp=a.order; a.order=b.order; b.order=tmp;
-  dirty=true; renderAll();
+  markDirty('categories'); renderAll();
 }
 
 /* 作業者（氏名・社員番号）のインライン編集 */
@@ -1064,7 +1069,7 @@ function openWorkerEdit(id){
       markAvatarDirty(w.id);
     }
     rememberWorkerAvatars();
-    dirty=true; renderAll(); toast('作業者を更新しました');
+    markDirty('workers'); renderAll(); toast('作業者を更新しました');
   });
   row.querySelector('#edtWkCancel').addEventListener('click',renderAdmin);
 }
@@ -1089,7 +1094,7 @@ function openCatEdit(id){
     const nm=row.querySelector('#edtCatName').value.trim();
     if(!nm){toast('大分類名を入力してください');return;}
     c.name=nm; c.code=row.querySelector('#edtCatCode').value.trim(); c.color=row.querySelector('#edtCatColor').value;
-    dirty=true; renderAll(); toast('大分類を更新しました');
+    markDirty('categories'); renderAll(); toast('大分類を更新しました');
   });
   row.querySelector('#edtCatCancel').addEventListener('click',renderAdmin);
 }
@@ -1133,7 +1138,7 @@ function openTaskEdit(id){
     }
     t.name=nm;
     t.hasDoc=row.querySelector('#edtDoc').checked; t.link=row.querySelector('#edtLink').value.trim();
-    dirty=true; renderAll(); toast('作業を更新しました');
+    markDirty('tasks'); renderAll(); toast('作業を更新しました');
   });
   row.querySelector('#edtCancel').addEventListener('click',renderAdmin);
 }
@@ -1168,7 +1173,7 @@ $('#addWorker').addEventListener('click',async()=>{
   workers.push(worker);
   if(avatar)markAvatarDirty(worker.id);
   rememberWorkerAvatars();
-  $('#newWorkerName').value='';$('#newWorkerCode').value='';$('#newWorkerAvatar').value='';dirty=true;renderAll();toast('作業者を追加しました');
+  $('#newWorkerName').value='';$('#newWorkerCode').value='';$('#newWorkerAvatar').value='';markDirty('workers');renderAll();toast('作業者を追加しました');
 });
 $('#addTask').addEventListener('click',()=>{
   const name=$('#newTaskName').value.trim();if(!name){toast('作業名を入力してください');return;}
@@ -1176,14 +1181,14 @@ $('#addTask').addEventListener('click',()=>{
   const maxOrder=tasks.filter(t=>t.catId===catId).reduce((m,t)=>Math.max(m,t.order||0),0);
   tasks.push({id:nextId(tasks,'T'),code:nextTaskCode(catId),name:name,catId:catId,order:maxOrder+1,hasDoc:$('#newTaskDoc').checked,link:$('#newTaskLink').value.trim(),active:true});
   taskGroupCollapsed[catId||'_orphan']=false;
-  $('#newTaskName').value='';$('#newTaskLink').value='';$('#newTaskDoc').checked=false;dirty=true;renderAll();toast('作業を追加しました');
+  $('#newTaskName').value='';$('#newTaskLink').value='';$('#newTaskDoc').checked=false;markDirty('tasks');renderAll();toast('作業を追加しました');
 });
 $('#newTaskCat').addEventListener('change',updateTaskCodePreview);
 $('#addCat').addEventListener('click',()=>{
   const name=$('#newCatName').value.trim();if(!name){toast('大分類名を入力してください');return;}
   const maxOrder=categories.reduce((m,c)=>Math.max(m,c.order),0);
   categories.push({id:nextId(categories,'C'),code:$('#newCatCode').value.trim(),name:name,color:$('#newCatColor').value,order:maxOrder+1,active:true});
-  $('#newCatCode').value='';$('#newCatName').value='';dirty=true;renderAll();toast('大分類を追加しました');
+  $('#newCatCode').value='';$('#newCatName').value='';markDirty('categories');renderAll();toast('大分類を追加しました');
 });
 
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
@@ -1235,6 +1240,8 @@ async function loadData(){
     }
     workers=d.workers;tasks=d.tasks;skills=d.skills||{};snapshots=d.snapshots||[];
     restoreWorkerAvatars();
+    dirtyKeys.clear();
+    avatarDirtyIds.clear();
     if(d.categories&&d.categories.length)categories=d.categories;
     $('#statusDot').classList.add('online');
     $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 読込）';
@@ -1255,17 +1262,18 @@ async function saveData(){
   }finally{$('#saveBtn').textContent='保存';}
 }
 async function saveCoreData(){
-  const workersForSave=workers.map(w=>({
-    id:w.id,name:w.name,code:w.code||'',active:w.active
-  }));
-  const payload=JSON.stringify({
-    action:'save',
-    workers:workersForSave,
-    categories:categories,
-    tasks:tasks,
-    skills:skills,
-    snapshots:snapshots
-  });
+  if(!dirtyKeys.size)return;
+  const data={action:'savePartial'};
+  if(dirtyKeys.has('workers')){
+    data.workers=workers.map(w=>({
+      id:w.id,name:w.name,code:w.code||'',active:w.active
+    }));
+  }
+  if(dirtyKeys.has('categories'))data.categories=categories;
+  if(dirtyKeys.has('tasks'))data.tasks=tasks;
+  if(dirtyKeys.has('skills'))data.skills=skills;
+  if(dirtyKeys.has('snapshots'))data.snapshots=snapshots;
+  const payload=JSON.stringify(data);
   await fetch(GAS_URL,{method:'POST',mode:'no-cors',credentials:'include',
     headers:{'Content-Type':'text/plain;charset=utf-8'},body:payload});
 }
@@ -1283,6 +1291,7 @@ async function syncAvatars(){
 function saveOk(){
   rememberWorkerAvatars();
   avatarDirtyIds.clear();
+  dirtyKeys.clear();
   dirty=false;toast('保存しました');
   $('#statusDot').classList.add('online');
   $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';
