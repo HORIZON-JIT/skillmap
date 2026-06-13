@@ -1240,18 +1240,10 @@ async function saveData(){
   const body=JSON.stringify(payload);
   $('#saveBtn').textContent='保存中…';
   try{
-    // データが小さければJSONP(GET)で保存（応答が読めるので確実）
-    if(encodeURIComponent(body).length<7000){
-      const r=await jsonp({action:'save',payload:body});
-      if(r&&r.ok){await syncAvatars();saveOk();return;}
-      throw new Error('jsonp save failed');
-    }
-    // 大きい場合はPOST。社内制約でCORSが弾く場合に備えno-corsで送る
     await fetch(GAS_URL,{method:'POST',mode:'no-cors',
       headers:{'Content-Type':'text/plain;charset=utf-8'},body:body});
-    // no-corsはレスポンスを読めないので、読み直して確認
-    const check=await jsonp({action:'load'});
-    if(check&&check.tasks){await syncAvatars();saveOk();}else{throw new Error('verify failed');}
+    await syncAvatars();
+    saveOk();
   }catch(e){
     toast('保存に失敗しました');console.error(e);
   }finally{$('#saveBtn').textContent='保存';}
