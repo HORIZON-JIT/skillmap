@@ -891,21 +891,36 @@ $('#saveBtn').addEventListener('click',saveData);
 function renderAll(){renderMatrix();renderAdmin();if($('#view-dash').classList.contains('active'))renderDash();if($('#view-risk').classList.contains('active'))renderRisk();}
 
 /* ▼▼▼ ここにGASのデプロイURLを貼ると保存が有効になります ▼▼▼
-   例：const GAS_URL='https://script.google.com/macros/s/XXXXX/exec';
+   例：const GAS_URL='https://script.google.com/.../exec';
+   社内ドメイン限定（ホリゾン内の全員）のデプロイでも、
+   日報アプリと同じJSONP方式で読み込むため動作します。
    空のままだとローカルモード（保存されない試作）で動きます。 */
 const GAS_URL='https://script.google.com/a/macros/horizon.co.jp/s/AKfycbwygMEpwLkfEJ1iUQPFJlorTJRZMj7uFGOJA3SHVMjuv4Ot600UjMJ1sI2jYxRS6X1CLw/exec';
+
+// JSONPでGET（社内ドメイン限定デプロイでも社内ログイン済みなら通る）
+function jsonp(params){
+  return new Promise((resolve,reject)=>{
+    const cb='cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
+    const cleanup=()=>{delete window[cb];s.remove();clearTimeout(timer);};
+    const timer=setTimeout(()=>{cleanup();reject(new Error('timeout'));},20000);
+    window[cb]=data=>{cleanup();resolve(data);};
+    const qs=Object.keys(params).map(k=>k+'='+encodeURIComponent(params[k])).join('&');
+    const s=document.createElement('script');
+    s.src=GAS_URL+'?'+qs+'&callback='+cb;
+    s.onerror=()=>{cleanup();reject(new Error('script error'));};
+    document.body.appendChild(s);
+  });
+}
+
 async function loadData(){
   if(!GAS_URL){renderAll();return;}
   try{
-    const res=await fetch(GAS_URL+'?action=load');
-    const d=await res.json();
-    // 一度も保存していない（全部空）の場合は、初期サンプルを残して案内
+    const d=await jsonp({action:'load'});
     const empty=(!d.workers||!d.workers.length)&&(!d.tasks||!d.tasks.length);
     if(empty){
       $('#statusDot').classList.add('online');
       $('#statusText').textContent='接続済み・データ未保存（保存ボタンで初回登録）';
-      renderAll();
-      return;
+      renderAll();return;
     }
     workers=d.workers;tasks=d.tasks;skills=d.skills||{};snapshots=d.snapshots||[];
     if(d.categories&&d.categories.length)categories=d.categories;
@@ -914,18 +929,33 @@ async function loadData(){
     renderAll();
   }catch(e){toast('読み込みに失敗しました');console.error(e);renderAll();}
 }
+
 async function saveData(){
   if(!GAS_URL){toast('ローカルモードのため保存されません');dirty=false;return;}
+  const payload={action:'save',workers:workers,categories:categories,tasks:tasks,skills:skills,snapshots:snapshots};
+  const body=JSON.stringify(payload);
+  $('#saveBtn').textContent='保存中…';
   try{
-    $('#saveBtn').textContent='保存中…';
-    const res=await fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'save',workers:workers,tasks:tasks,skills:skills,snapshots:snapshots,categories:categories})});
-    const r=await res.json();
-    if(r&&r.ok){dirty=false;toast('保存しました');
-      $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';}
-    else{toast('保存に失敗しました（応答エラー）');console.error(r);}
-  }catch(e){toast('保存に失敗しました');console.error(e);}
-  finally{$('#saveBtn').textContent='保存';}
+    // データが小さければJSONP(GET)で保存（応答が読めるので確実）
+    if(encodeURIComponent(body).length<7000){
+      const r=await jsonp({action:'save',payload:body});
+      if(r&&r.ok){saveOk();return;}
+      throw new Error('jsonp save failed');
+    }
+    // 大きい場合はPOST。社内制約でCORSが弾く場合に備えno-corsで送る
+    await fetch(GAS_URL,{method:'POST',mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},body:body});
+    // no-corsはレスポンスを読めないので、読み直して確認
+    const check=await jsonp({action:'load'});
+    if(check&&check.tasks){saveOk();}else{throw new Error('verify failed');}
+  }catch(e){
+    toast('保存に失敗しました');console.error(e);
+  }finally{$('#saveBtn').textContent='保存';}
+}
+function saveOk(){
+  dirty=false;toast('保存しました');
+  $('#statusDot').classList.add('online');
+  $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';
 }
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 loadData();
