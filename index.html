@@ -284,7 +284,7 @@
         <select id="newTaskCat" class="sel"></select>
       </div>
       <div class="form-row" style="margin-top:-4px">
-        <span class="meta" style="font-size:11px;color:var(--ink-dim)">コードは大分類の略号から自動採番：<strong id="newTaskCodePreview">—</strong></span>
+        <span class="meta" style="font-size:11px;color:var(--ink-dim)">コードは大分類の略号＋並び順で自動採番：<strong id="newTaskCodePreview">—</strong></span>
       </div>
       <div class="form-row">
         <label class="cb"><input type="checkbox" id="newTaskDoc">手順書あり</label>
@@ -397,6 +397,7 @@ function calcCurrent(){
 }
 
 function renderMatrix(){
+  renumberTaskCodes();
   const aw=workers.filter(w=>showDisabled||w.active);
   let html='<thead><tr>'+
     '<th class="corner-cat">大分類</th>'+
@@ -911,7 +912,6 @@ function openTaskEdit(id){
   row.innerHTML=
     '<div style="flex:1;display:flex;flex-direction:column;gap:7px">'+
       '<div class="form-row" style="margin:0">'+
-        '<input type="text" id="edtCode" value="'+esc(t.code||'')+'" placeholder="コード" style="max-width:90px">'+
         '<input type="text" id="edtName" value="'+esc(t.name)+'" placeholder="作業名">'+
       '</div>'+
       '<div class="form-row" style="margin:0">'+
@@ -936,23 +936,29 @@ function openTaskEdit(id){
       const maxOrder=tasks.filter(x=>x.catId===newCat&&x.id!==t.id).reduce((m,x)=>Math.max(m,x.order||0),0);
       t.catId=newCat; t.order=maxOrder+1;
     }
-    t.name=nm; t.code=row.querySelector('#edtCode').value.trim();
+    t.name=nm;
     t.hasDoc=row.querySelector('#edtDoc').checked; t.link=row.querySelector('#edtLink').value.trim();
     dirty=true; renderAll(); toast('作業を更新しました');
   });
   row.querySelector('#edtCancel').addEventListener('click',renderAdmin);
 }
 function nextId(arr,p){let n=0;arr.forEach(x=>{const v=parseInt(x.id.replace(p,''),10);if(v>n)n=v;});return p+String(n+1).padStart(3,'0');}
-/* 作業コードの自動採番：大分類の略号 ＋ その分類内コードの最大番号＋1（例：a→a5） */
+/* 作業コードは「大分類の略号 ＋ その分類内の並び順」で自動決定（例：a→a1,a2,…）。
+   並び替え・削除・分類変更のたびにこの関数で振り直す。 */
+function renumberTaskCodes(){
+  categories.forEach(c=>{
+    tasks.filter(t=>t.catId===c.id).sort((a,b)=>(a.order||0)-(b.order||0))
+      .forEach((t,i)=>{ t.code=(c.code||'')+(i+1); });
+  });
+  // どの大分類にも属さない作業（分類が削除された等）は略号なしの連番
+  tasks.filter(t=>!categories.find(c=>c.id===t.catId)).sort((a,b)=>(a.order||0)-(b.order||0))
+    .forEach((t,i)=>{ t.code=String(i+1); });
+}
+/* 追加すると末尾に並ぶので、次のコード＝略号＋（その分類の作業数＋1） */
 function nextTaskCode(catId){
   const c=categories.find(x=>x.id===catId);
   const prefix=(c&&c.code)?c.code:'';
-  let max=0;
-  tasks.filter(t=>t.catId===catId).forEach(t=>{
-    const m=String(t.code||'').match(/(\d+)\s*$/);
-    if(m){const n=parseInt(m[1],10);if(n>max)max=n;}
-  });
-  return prefix+(max+1);
+  return prefix+(tasks.filter(t=>t.catId===catId).length+1);
 }
 /* 追加フォームのコードプレビュー更新（選択中の大分類に対する次番号を表示） */
 function updateTaskCodePreview(){
