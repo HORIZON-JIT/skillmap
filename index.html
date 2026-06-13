@@ -701,6 +701,7 @@ function renderAdmin(){
       '<div style="display:flex;gap:4px">'+
         '<button class="mini-btn" data-act="upW" data-id="'+w.id+'" '+(i===0?'disabled style="opacity:.3"':'')+'>↑</button>'+
         '<button class="mini-btn" data-act="dnW" data-id="'+w.id+'" '+(i===workers.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
+        '<button class="mini-btn" data-act="editW" data-id="'+w.id+'">編集</button>'+
         '<button class="'+(w.active?'danger':'primary')+' mini-btn" data-act="'+(w.active?'disW':'enW')+'" data-id="'+w.id+'">'+(w.active?'無効化':'復活')+'</button>'+
         '<button class="danger mini-btn" data-act="delW" data-id="'+w.id+'">削除</button>'+
       '</div>'+
@@ -755,6 +756,7 @@ function renderAdmin(){
     else if(act==='enW'){workers.find(x=>x.id===id).active=true;dirty=true;}
     else if(act==='delW'){deleteWorker(id);return;}
     else if(act==='upW'||act==='dnW'){moveWorker(id,act==='upW'?-1:1);return;}
+    else if(act==='editW'){openWorkerEdit(id);return;}
     else if(act==='disT'){const t=tasks.find(x=>x.id===id);
       if(confirm('作業「'+t.name+'」を無効化します。\n評価記録は残したまま一覧から非表示になります。よろしいですか？')){t.active=false;dirty=true;}}
     else if(act==='enT'){tasks.find(x=>x.id===id).active=true;dirty=true;}
@@ -846,6 +848,29 @@ function moveCat(id,dir){
   const a=cats[i],b=cats[j];
   const tmp=a.order; a.order=b.order; b.order=tmp;
   dirty=true; renderAll();
+}
+
+/* 作業者（氏名・社員番号）のインライン編集 */
+function openWorkerEdit(id){
+  const w=workers.find(x=>x.id===id);
+  const row=$('#workerList').querySelectorAll('.item-row')[workers.indexOf(w)];
+  if(!row)return;
+  row.innerHTML=
+    '<div style="flex:1;display:flex;gap:6px;align-items:center">'+
+      '<input type="text" id="edtWkName" value="'+esc(w.name)+'" placeholder="氏名" style="flex:1">'+
+      '<input type="text" id="edtWkCode" value="'+esc(w.code||'')+'" placeholder="社員番号" style="max-width:120px">'+
+    '</div>'+
+    '<div style="display:flex;gap:6px">'+
+      '<button class="primary mini-btn" id="edtWkSave">保存</button>'+
+      '<button class="mini-btn" id="edtWkCancel">取消</button>'+
+    '</div>';
+  row.querySelector('#edtWkSave').addEventListener('click',()=>{
+    const nm=row.querySelector('#edtWkName').value.trim();
+    if(!nm){toast('氏名を入力してください');return;}
+    w.name=nm; w.code=row.querySelector('#edtWkCode').value.trim();
+    dirty=true; renderAll(); toast('作業者を更新しました');
+  });
+  row.querySelector('#edtWkCancel').addEventListener('click',renderAdmin);
 }
 
 /* 大分類名のインライン編集 */
