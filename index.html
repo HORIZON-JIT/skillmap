@@ -56,6 +56,8 @@
   header .sub{font-size:10px;color:var(--ink-soft);margin-top:-1px;font-weight:700;letter-spacing:.05em}
   .status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--warn);margin-right:5px}
   .status-dot.online{background:var(--lv3)}
+  .conn-status{font-size:11px;color:var(--ink-dim);display:inline-flex;align-items:center;white-space:nowrap}
+  @media(max-width:640px){.conn-status{display:none}}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
   button{font-family:inherit;font-size:13px;cursor:pointer;border-radius:8px;
@@ -309,11 +311,12 @@
   <div class="brand-mark">
     <div class="dot"></div>
     <div>
-      <h1>生産管理課 スキルマップ</h1>
-      <div class="sub"><span class="status-dot" id="statusDot"></span><span id="statusText">ローカルモード（試作・データは保存されません）</span></div>
+      <h1>スキルマップアプリ</h1>
+      <div class="sub">HORIZON / 生産管理課</div>
     </div>
   </div>
   <div class="toolbar">
+    <span class="conn-status"><span class="status-dot" id="statusDot"></span><span id="statusText">ローカルモード（試作・データは保存されません）</span></span>
     <button class="primary" id="saveBtn">保存</button>
   </div>
 </header>
