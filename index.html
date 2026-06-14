@@ -1299,10 +1299,12 @@ const GAS_URL='https://script.google.com/a/macros/horizon.co.jp/s/AKfycbxxjrZmFV
    ※ apiKey はクライアントに出ますが Firebase 仕様上それで正常。
      セキュリティは「Googleログイン＋Firestoreルールでドメイン限定」で担保します。 */
 const firebaseConfig={
-  apiKey:'YOUR_API_KEY',
-  authDomain:'YOUR_PROJECT.firebaseapp.com',
-  projectId:'YOUR_PROJECT',
-  appId:'YOUR_APP_ID'
+  apiKey:'AIzaSyBL3DZzzZKDqSjT_GuaCDHOneG8xjF8J7Q',
+  authDomain:'skillmap-2035f.firebaseapp.com',
+  projectId:'skillmap-2035f',
+  storageBucket:'skillmap-2035f.firebasestorage.app',
+  messagingSenderId:'280449809122',
+  appId:'1:280449809122:web:091bf82385bf701b05bcbb'
 };
 const ALLOWED_DOMAIN='horizon.co.jp';
 const USE_FIREBASE=!!(window.firebase&&firebaseConfig.apiKey&&firebaseConfig.apiKey.indexOf('YOUR_')===-1);
