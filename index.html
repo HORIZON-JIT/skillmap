@@ -340,6 +340,9 @@
 <div class="view" id="view-admin">
   <div class="snap-bar">
     <span class="note">スナップショットは月末などに記録します。記録した時点の各人の合計点・課の充足率・属人化作業数がダッシュボードのチャートに反映されます。</span>
+    <button class="mini-btn" id="exportBtn">JSONエクスポート</button>
+    <button class="mini-btn" id="importBtn">JSONインポート（復元）</button>
+    <input type="file" id="importFile" accept="application/json,.json" style="display:none">
     <button class="mini-btn" id="migrateBtn" style="display:none">現データをFirebaseへ移行</button>
   </div>
   <div class="admin-grid">
@@ -1509,6 +1512,77 @@ async function migrateFromGas(){
     setTimeout(()=>location.reload(),1500);
   }catch(e){toast('移行に失敗しました');console.error(e);}
 }
+/* ========================= バックアップ（JSONエクスポート／インポート復元） ========================= */
+// 現在のデータを1つのJSONにまとめて返す
+function buildBackup(){
+  return {app:'skillmap',version:1,exportedAt:new Date().toISOString(),
+    workers:workers,categories:categories,tasks:tasks,skills:skills,snapshots:snapshots};
+}
+// JSONファイルとしてダウンロード
+function downloadBackup(prefix){
+  const now=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  const stamp=now.getFullYear()+p(now.getMonth()+1)+p(now.getDate())+'-'+p(now.getHours())+p(now.getMinutes());
+  const blob=new Blob([JSON.stringify(buildBackup(),null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=(prefix||'skillmap-backup-')+stamp+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function exportJson(){
+  downloadBackup('skillmap-backup-');
+  toast('現在のデータをエクスポートしました');
+}
+// ファイルを読み、件数を確認 → 復元前に自動バックアップ → Firestoreを上書き復元
+function importJsonFile(input){
+  const file=input&&input.files&&input.files[0];
+  input.value='';
+  if(!file)return;
+  if(!USE_FIREBASE){toast('復元はFirebase接続時のみ可能です');return;}
+  const reader=new FileReader();
+  reader.onerror=()=>toast('ファイルの読み込みに失敗しました');
+  reader.onload=()=>{
+    let d;
+    try{d=JSON.parse(reader.result);}catch(_){toast('JSONの形式が不正です');return;}
+    if(!d||(!Array.isArray(d.workers)&&!Array.isArray(d.tasks))){toast('スキルマップのバックアップではないようです');return;}
+    const nw=(d.workers||[]).length,nc=(d.categories||[]).length,nt=(d.tasks||[]).length,
+      nk=Object.keys(d.skills||{}).length,ns=(d.snapshots||[]).length;
+    const msg='このファイルで Firebase のデータを上書き復元します。\n\n'+
+      '作業者 '+nw+' / 大分類 '+nc+' / 作業 '+nt+' / 評価 '+nk+' / スナップショット '+ns+'\n'+
+      (d.exportedAt?'（書き出し日時: '+d.exportedAt+'）\n':'')+
+      '\n現在のデータは消えてこの内容に置き換わります。よろしいですか？';
+    if(!confirm(msg))return;
+    // 念のため、復元前に現状を自動バックアップ
+    downloadBackup('skillmap-before-restore-');
+    restoreToFirestore(d);
+  };
+  reader.readAsText(file);
+}
+// Firestore を「既存を全削除→ファイル内容を書込」で復元
+async function restoreToFirestore(d){
+  toast('復元中…');
+  try{
+    const ops=[];
+    for(const col of ['workers','categories','tasks','skills','snapshots']){
+      const snap=await fdb.collection(col).get();
+      snap.docs.forEach(doc=>ops.push({ref:doc.ref,del:true}));
+    }
+    (d.workers||[]).forEach((w,i)=>{ if(w&&w.id)ops.push({ref:fdb.collection('workers').doc(w.id),data:workerDoc(w,i)}); });
+    (d.categories||[]).forEach(c=>{ if(c&&c.id)ops.push({ref:fdb.collection('categories').doc(c.id),data:catDoc(c)}); });
+    (d.tasks||[]).forEach(t=>{ if(t&&t.id)ops.push({ref:fdb.collection('tasks').doc(t.id),data:taskDoc(t)}); });
+    Object.keys(d.skills||{}).forEach(k=>{const p=k.split('|');ops.push({ref:fdb.collection('skills').doc(k),data:{taskId:p[0]||'',workerId:p[1]||'',level:Number(d.skills[k]||0)}});});
+    (d.snapshots||[]).forEach(s=>{ if(s&&s.month)ops.push({ref:fdb.collection('snapshots').doc(s.month),data:snapDoc(s)}); });
+    await commitOps(ops);
+    try{localStorage.removeItem(DATA_CACHE_KEY);}catch(_){}
+    toast('復元が完了しました。再読込します');
+    setTimeout(()=>location.reload(),1500);
+  }catch(e){toast('復元に失敗しました');console.error(e);}
+}
+$('#exportBtn')&&$('#exportBtn').addEventListener('click',exportJson);
+$('#importBtn')&&$('#importBtn').addEventListener('click',()=>$('#importFile').click());
+$('#importFile')&&$('#importFile').addEventListener('change',function(){importJsonFile(this);});
+
 /* ========================= 起動・ログイン制御 ========================= */
 function showLoginGate(msg,isError){
   const m=$('#loginMsg');
