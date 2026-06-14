@@ -102,6 +102,16 @@
   .matrix-radar .mr-hint{font-size:11px;color:var(--ink-dim);margin-top:10px;line-height:1.6}
   th.sel-col,td.sel-col{box-shadow:inset 0 0 0 9999px rgba(31,111,235,.08)}
   thead th.sel-col{box-shadow:none;background:var(--brand-soft)}
+  .cell.cell-focus{outline:3px solid var(--ink);outline-offset:-3px;position:relative;z-index:1}
+  .brush-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .brush-bar .brush-label{font-size:12px;color:var(--ink-dim);font-weight:700}
+  .brush-btn{padding:5px 13px;border-radius:7px;font-weight:800;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+  .brush-btn.active{outline:2px solid var(--brand);outline-offset:1px}
+  .brush-btn.lv0{background:var(--lv0);color:#475569}
+  .brush-btn.lv1{background:var(--lv1);color:#fff}
+  .brush-btn.lv2{background:var(--lv2);color:#4a3700}
+  .brush-btn.lv3{background:var(--lv3);color:#fff}
+  .brush-hint{font-size:11px;color:var(--ink-dim);flex:1;min-width:160px}
   @media(max-width:1100px){.matrix-layout{flex-direction:column}.matrix-radar{flex:1 1 auto;width:100%;position:static}}
   table{border-collapse:separate;border-spacing:0;width:100%}
   th,td{text-align:center;white-space:nowrap;border-bottom:1px solid var(--line-soft);border-right:1px solid var(--line-soft)}
@@ -297,6 +307,15 @@
     <span style="margin-left:auto"><i class="risk-tag">属人化</i>：レベル3が1人以下</span>
     <button class="mini-btn" id="toggleDisabled" style="margin-left:8px">無効も表示</button>
   </div>
+  <div class="brush-bar">
+    <span class="brush-label">クリック動作：</span>
+    <button class="brush-btn active" data-brush="cycle">＋加算</button>
+    <button class="brush-btn lv0" data-brush="0">0</button>
+    <button class="brush-btn lv1" data-brush="1">1</button>
+    <button class="brush-btn lv2" data-brush="2">2</button>
+    <button class="brush-btn lv3" data-brush="3">3</button>
+    <span class="brush-hint">レベルを選ぶと、クリック／ドラッグでその値を直接ぬれます。右クリックで1段下げ。セル選択中は 0〜3 キーと矢印キーでも入力できます。</span>
+  </div>
   <div class="matrix-layout">
     <div class="card matrix-scroll"><table id="matrix"></table></div>
     <div class="card matrix-radar" id="matrixRadar">
@@ -473,6 +492,9 @@ const matrixGroupCollapsed={};
 const taskGroupCollapsed={};
 let selectedWorkerId=null;     // マトリクスで最後にクリックした担当者
 let matrixRadarChart=null;     // 右側レーダーのChartインスタンス
+let brushLevel=null;           // null=加算モード、0〜3=その値を直接セット
+let painting=false;            // ドラッグ塗り中か
+let selectedCell=null;         // キーボード入力対象の {t,w}
 const charts={};
 const $=s=>document.querySelector(s);
 const skey=(t,w)=>t+'|'+w;
@@ -699,10 +721,18 @@ function renderMatrix(){
   aw.forEach(w=>html+='<td class="total-col">'+allTasks.reduce((s,t)=>s+getLv(t.id,w.id),0)+'</td>');
   html+='<td></td></tr></tbody>';
   $('#matrix').innerHTML=html;
-  $('#matrix').querySelectorAll('.cell').forEach(c=>c.addEventListener('click',()=>{
-    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;markSkillDirty(k);
-    selectedWorkerId=c.dataset.w;renderMatrix();
-  }));
+  $('#matrix').querySelectorAll('.cell').forEach(c=>{
+    c.addEventListener('mousedown',e=>{
+      if(e.button!==0)return;        // 左ボタンのみ
+      e.preventDefault();
+      painting=true;
+      selectedCell={t:c.dataset.t,w:c.dataset.w};
+      paintCellEl(c);
+    });
+    c.addEventListener('mouseenter',()=>{ if(painting)paintCellEl(c); });
+    c.addEventListener('contextmenu',e=>{ e.preventDefault(); decCellEl(c); });
+  });
+  focusCellEl();
   renderMatrixRadar();
   $('#matrix').querySelectorAll('.matrix-cat-toggle').forEach(b=>b.addEventListener('click',e=>{
     e.stopPropagation();
@@ -710,6 +740,48 @@ function renderMatrix(){
     matrixGroupCollapsed[id]=!matrixGroupCollapsed[id];
     renderMatrix();
   }));
+}
+
+/* セルに値を書く（ブラシ=直接セット／加算モード=+1）。ドラッグ中はDOMだけ更新し、確定時に全体再描画 */
+function paintCellEl(c){
+  const k=skey(c.dataset.t,c.dataset.w);
+  const v=(brushLevel===null)?(((skills[k]??0)+1)%4):brushLevel;
+  skills[k]=v;markSkillDirty(k);
+  selectedWorkerId=c.dataset.w;selectedCell={t:c.dataset.t,w:c.dataset.w};
+  c.className='cell lv'+v+(c.dataset.w===selectedWorkerId?' sel-col':'')+' cell-focus';
+  c.textContent=v;
+}
+/* 右クリック：1段下げる（0で止まらず3へ循環） */
+function decCellEl(c){
+  const k=skey(c.dataset.t,c.dataset.w);
+  skills[k]=((skills[k]??0)+3)%4;markSkillDirty(k);
+  selectedWorkerId=c.dataset.w;selectedCell={t:c.dataset.t,w:c.dataset.w};
+  renderMatrix();
+}
+/* キーボード入力対象セルに枠線を表示 */
+function focusCellEl(){
+  const m=$('#matrix'); if(!m)return;
+  m.querySelectorAll('.cell.cell-focus').forEach(c=>c.classList.remove('cell-focus'));
+  if(!selectedCell)return;
+  const c=m.querySelector('.cell[data-t="'+CSS.escape(selectedCell.t)+'"][data-w="'+CSS.escape(selectedCell.w)+'"]');
+  if(c)c.classList.add('cell-focus');
+}
+/* 矢印キーで選択セルを移動（dr=行方向, dc=列方向） */
+function moveFocus(dr,dc){
+  const m=$('#matrix'); if(!m||!selectedCell)return;
+  const cells=Array.from(m.querySelectorAll('.cell'));
+  const cols=m.querySelectorAll('thead .worker-head').length;
+  if(!cols||!cells.length)return;
+  const cur=m.querySelector('.cell[data-t="'+CSS.escape(selectedCell.t)+'"][data-w="'+CSS.escape(selectedCell.w)+'"]');
+  const idx=cells.indexOf(cur); if(idx<0)return;
+  const ni=idx+dc+dr*cols;
+  if(ni<0||ni>=cells.length)return;
+  const nc=cells[ni];
+  selectedCell={t:nc.dataset.t,w:nc.dataset.w};
+  selectedWorkerId=nc.dataset.w;
+  renderMatrix();
+  const moved=m.querySelector('.cell[data-t="'+CSS.escape(selectedCell.t)+'"][data-w="'+CSS.escape(selectedCell.w)+'"]');
+  if(moved)moved.scrollIntoView({block:'nearest',inline:'nearest'});
 }
 
 /* マトリクス右側：選択中の担当者の大分類レーダー（得意・不得意の可視化） */
@@ -1335,6 +1407,27 @@ $('#toggleDisabled').addEventListener('click',()=>{showDisabled=!showDisabled;
 $('#snapBtn').addEventListener('click',recordSnapshot);
 $('#radarOverlay').addEventListener('change',drawRadars);
 $('#saveBtn').addEventListener('click',saveData);
+// レベル筆（ブラシ）の切り替え
+document.querySelectorAll('.brush-btn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.brush-btn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  brushLevel=b.dataset.brush==='cycle'?null:Number(b.dataset.brush);
+}));
+// ドラッグ塗りの終了 → 小計・合計・レーダーを確定描画
+document.addEventListener('mouseup',()=>{ if(painting){painting=false;renderMatrix();} });
+// キーボード入力：選択セルに 0〜3、矢印で移動
+document.addEventListener('keydown',e=>{
+  if(!$('#view-matrix').classList.contains('active')||!selectedCell)return;
+  const tag=(e.target&&e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='select'||tag==='textarea')return;
+  if(e.key>='0'&&e.key<='3'){
+    const k=skey(selectedCell.t,selectedCell.w);skills[k]=Number(e.key);markSkillDirty(k);
+    selectedWorkerId=selectedCell.w;renderMatrix();e.preventDefault();
+  }else if(e.key==='ArrowRight'){moveFocus(0,1);e.preventDefault();}
+  else if(e.key==='ArrowLeft'){moveFocus(0,-1);e.preventDefault();}
+  else if(e.key==='ArrowDown'){moveFocus(1,0);e.preventDefault();}
+  else if(e.key==='ArrowUp'){moveFocus(-1,0);e.preventDefault();}
+});
 function renderAll(){renderMatrix();renderAdmin();if($('#view-dash').classList.contains('active'))renderDash();if($('#view-risk').classList.contains('active'))renderRisk();}
 
 /* ▼▼▼ ここにGASのデプロイURLを貼ると保存が有効になります ▼▼▼
