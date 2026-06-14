@@ -92,6 +92,17 @@
 
   .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
   .matrix-scroll{overflow:auto;border-radius:var(--radius);max-height:calc(100vh - 186px)}
+  .matrix-layout{display:flex;gap:16px;align-items:flex-start}
+  .matrix-layout .matrix-scroll{flex:1 1 auto;min-width:0}
+  .matrix-radar{flex:0 0 290px;align-self:flex-start;padding:16px 18px;position:sticky;top:96px}
+  .matrix-radar h3{font-size:14px;font-weight:800;margin-bottom:2px}
+  .matrix-radar .mr-name{font-size:13px;font-weight:800;color:var(--brand);margin:8px 0 2px}
+  .matrix-radar .mr-meta{font-size:11px;color:var(--ink-dim);margin-bottom:8px}
+  .matrix-radar .mr-box{position:relative;height:260px}
+  .matrix-radar .mr-hint{font-size:11px;color:var(--ink-dim);margin-top:10px;line-height:1.6}
+  th.sel-col,td.sel-col{box-shadow:inset 0 0 0 9999px rgba(31,111,235,.08)}
+  thead th.sel-col{box-shadow:none;background:var(--brand-soft)}
+  @media(max-width:1100px){.matrix-layout{flex-direction:column}.matrix-radar{flex:1 1 auto;width:100%;position:static}}
   table{border-collapse:separate;border-spacing:0;width:100%}
   th,td{text-align:center;white-space:nowrap;border-bottom:1px solid var(--line-soft);border-right:1px solid var(--line-soft)}
   thead th{background:#F0E9DB;font-weight:800;font-size:12px;padding:9px 10px;position:sticky;top:0;z-index:3;color:#4B4741}
@@ -106,7 +117,7 @@
   .avatar-file{font-size:12px;min-width:170px;max-width:230px}
   .corner-cat{position:sticky;left:0;z-index:4;text-align:center;min-width:78px;background:#F0E9DB}
   .corner-code{position:sticky;left:78px;z-index:4;text-align:center;min-width:54px;background:#F0E9DB}
-  .corner-task{position:sticky;left:132px;z-index:4;text-align:left;padding-left:14px;min-width:200px;background:#F0E9DB}
+  .corner-task{position:sticky;left:132px;z-index:4;text-align:left;padding-left:10px;min-width:128px;background:#F0E9DB}
   .cat-cell{position:sticky;left:0;z-index:2;text-align:center;width:78px;min-width:78px;vertical-align:middle;padding:6px 4px}
   .cat-cell .cat-code{font-size:20px;font-weight:850;line-height:1.1}
   .cat-cell .cat-label{font-size:10.5px;color:var(--ink-dim);font-weight:700;margin-top:1px}
@@ -118,7 +129,7 @@
   .matrix-collapsed-row td{background:#FAF7F1;color:var(--ink-dim);font-size:12px;font-weight:700}
   .matrix-collapsed-note{text-align:left;padding:10px 14px}
   .code-cell{position:sticky;left:78px;z-index:2;width:54px;min-width:54px;font-size:12px;font-weight:800;background:var(--surface)}
-  .task-name{text-align:left;padding:10px 14px;background:var(--surface);position:sticky;left:132px;z-index:2;min-width:200px;font-size:13px;font-weight:600}
+  .task-name{text-align:left;padding:7px 10px;background:var(--surface);position:sticky;left:132px;z-index:2;min-width:128px;font-size:13px;font-weight:600}
   .doc-badge{font-size:10px;padding:1.5px 7px;border-radius:6px;margin-left:7px;vertical-align:middle;font-weight:800}
   .doc-yes{background:#ecfdf5;color:#047857;border:1px solid #a7f3d0}
   .doc-no{background:#fff1f2;color:#be123c;border:1px solid #fecdd3}
@@ -286,7 +297,16 @@
     <span style="margin-left:auto"><i class="risk-tag">属人化</i>：レベル3が1人以下</span>
     <button class="mini-btn" id="toggleDisabled" style="margin-left:8px">無効も表示</button>
   </div>
-  <div class="card matrix-scroll"><table id="matrix"></table></div>
+  <div class="matrix-layout">
+    <div class="card matrix-scroll"><table id="matrix"></table></div>
+    <div class="card matrix-radar" id="matrixRadar">
+      <h3>担当者レーダー</h3>
+      <div class="mr-name" id="mrName">担当者を選択</div>
+      <div class="mr-meta" id="mrMeta"></div>
+      <div class="mr-box"><canvas id="matrixRadarCanvas"></canvas></div>
+      <div class="mr-hint">セルをクリックすると、その担当者の大分類ごとの到達度（得意・不得意）が表示されます。</div>
+    </div>
+  </div>
 </div>
 
 <div class="view" id="view-dash">
@@ -451,6 +471,8 @@ const deletedTaskIds=new Set();
 const deletedSkillKeys=new Set();
 const matrixGroupCollapsed={};
 const taskGroupCollapsed={};
+let selectedWorkerId=null;     // マトリクスで最後にクリックした担当者
+let matrixRadarChart=null;     // 右側レーダーのChartインスタンス
 const charts={};
 const $=s=>document.querySelector(s);
 const skey=(t,w)=>t+'|'+w;
@@ -618,7 +640,7 @@ function renderMatrix(){
     '<th class="corner-cat">大分類</th>'+
     '<th class="corner-code">コード</th>'+
     '<th class="corner-task">中分類（クリックで加算）</th>';
-  aw.forEach((w,i)=>html+='<th class="worker-head"'+(w.active?'':' style="opacity:.45"')+'>'+
+  aw.forEach((w,i)=>html+='<th class="worker-head'+(w.id===selectedWorkerId?' sel-col':'')+'"'+(w.active?'':' style="opacity:.45"')+'>'+
     '<div class="worker-head-wrap">'+
       '<span class="worker-head-name">'+esc(w.name)+'</span>'+
       workerAvatarHtml(w,i,'worker-avatar')+
@@ -662,7 +684,7 @@ function renderMatrix(){
       if(t.link)html+='<a class="doc-link" href="'+esc(t.link)+'" target="_blank">開く</a>';
       if(masters<=1)html+='<span class="risk-tag">属人化</span>';
       html+='</td>';
-      aw.forEach(w=>{const lv=getLv(t.id,w.id);html+='<td class="cell lv'+lv+'" data-t="'+t.id+'" data-w="'+w.id+'">'+lv+'</td>';});
+      aw.forEach(w=>{const lv=getLv(t.id,w.id);html+='<td class="cell lv'+lv+(w.id===selectedWorkerId?' sel-col':'')+'" data-t="'+t.id+'" data-w="'+w.id+'">'+lv+'</td>';});
       html+='<td class="count-cell">'+able+'人</td></tr>';
     });
     // 大分類の小計行
@@ -678,14 +700,41 @@ function renderMatrix(){
   html+='<td></td></tr></tbody>';
   $('#matrix').innerHTML=html;
   $('#matrix').querySelectorAll('.cell').forEach(c=>c.addEventListener('click',()=>{
-    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;markSkillDirty(k);renderMatrix();
+    const k=skey(c.dataset.t,c.dataset.w);skills[k]=((skills[k]??0)+1)%4;markSkillDirty(k);
+    selectedWorkerId=c.dataset.w;renderMatrix();
   }));
+  renderMatrixRadar();
   $('#matrix').querySelectorAll('.matrix-cat-toggle').forEach(b=>b.addEventListener('click',e=>{
     e.stopPropagation();
     const id=b.dataset.cat;
     matrixGroupCollapsed[id]=!matrixGroupCollapsed[id];
     renderMatrix();
   }));
+}
+
+/* マトリクス右側：選択中の担当者の大分類レーダー（得意・不得意の可視化） */
+function renderMatrixRadar(){
+  const nameEl=$('#mrName'),metaEl=$('#mrMeta');
+  if(!nameEl)return;
+  // 選択が無い／無効ならデフォルトで先頭の有効担当者を表示
+  let w=workers.find(x=>x.id===selectedWorkerId&&x.active);
+  if(!w){w=workers.find(x=>x.active);if(w)selectedWorkerId=w.id;}
+  if(matrixRadarChart){matrixRadarChart.destroy();matrixRadarChart=null;}
+  const axes=radarAxes();
+  if(!w){nameEl.textContent='担当者がいません';metaEl.textContent='';return;}
+  nameEl.textContent=w.name+' さん';
+  const sum=tasks.filter(t=>t.active).reduce((s,t)=>s+getLv(t.id,w.id),0);
+  metaEl.textContent='合計 '+sum+' 点';
+  if(axes.length<3){
+    metaEl.textContent=(metaEl.textContent?metaEl.textContent+'／':'')+'レーダーには大分類が3つ以上必要です（現在 '+axes.length+' 個）';
+    return;
+  }
+  const wi=workers.filter(x=>x.active).findIndex(x=>x.id===w.id);
+  const col=workerColor(wi<0?0:wi);
+  matrixRadarChart=makeRadar('matrixRadarCanvas',axes.map(c=>c.name),[{
+    label:w.name,data:workerCatPct(w.id),
+    borderColor:col,backgroundColor:hexA(col,.18),borderWidth:2,pointRadius:2.5,pointBackgroundColor:col
+  }],false);
 }
 
 function renderDash(){
