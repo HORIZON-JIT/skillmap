@@ -215,6 +215,17 @@
   .wr-bar{height:7px;border-radius:4px;background:var(--lv0);overflow:hidden;margin-top:7px;display:flex}
   .wr-bar .uniq{background:var(--lv1);height:100%}
   .wr-bar .shar{background:var(--lv3);height:100%}
+  .help-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:8px;
+    padding:0;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink-dim);
+    font-size:11px;font-weight:800;vertical-align:middle;cursor:pointer}
+  .help-btn:hover{border-color:var(--brand);color:var(--brand)}
+  .help-box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--ink)}
+  .help-box .help-h{font-weight:800;font-size:12.5px;margin-bottom:6px}
+  .help-box ul{margin:0 0 8px;padding-left:18px}
+  .help-box li{margin-bottom:3px;line-height:1.6}
+  .help-box .help-formula{font-weight:800;background:var(--brand-soft);color:var(--primary-dk);border-radius:6px;padding:6px 10px;margin-bottom:6px;display:inline-block}
+  .help-box .help-sev{margin-bottom:6px}
+  .help-box .help-note{font-size:11px;color:var(--ink-dim);line-height:1.6}
   .heat-name{text-align:left;padding:9px 12px;font-size:12px;font-weight:600;background:var(--surface);white-space:nowrap}
   .heat-cell{width:46px;height:40px;font-size:12px;font-weight:800;color:#fff;text-align:center}
   .heat-row-sev{font-size:11px;font-weight:800;padding:0 12px;white-space:nowrap}
@@ -376,15 +387,37 @@
   <div class="kpi-grid" id="riskKpi"></div>
 
   <div class="card" style="padding:18px 20px;margin-bottom:20px">
-    <h3 style="font-size:15px;margin-bottom:2px">担当者別 属人化リスク</h3>
+    <h3 style="font-size:15px;margin-bottom:2px">担当者別 属人化リスク<button class="help-btn" data-help="helpWorkerRisk" title="スコアの計算方法">？</button></h3>
     <div class="desc" style="font-size:11.5px;color:var(--ink-dim);margin-bottom:12px">その人が抜けると業務が止まる度合い（単独対応・単独マスターを合算）が高い順。逆に多人数で共有できる作業を多く持つ人は「冗長カバー型」として安全側に表示</div>
+    <div class="help-box" id="helpWorkerRisk" style="display:none">
+      <div class="help-h">担当者別スコアの計算</div>
+      <ul>
+        <li><b>単独対応</b>：その作業をレベル1以上で対応できるのが<b>その人だけ</b>の作業数（抜けると業務停止＝最重要）</li>
+        <li><b>単独マスター</b>：レベル3（マスター）が<b>その人だけ</b>の作業数</li>
+        <li><b>対応可能</b>：レベル1以上の作業数（守備範囲の広さ）</li>
+        <li><b>共通(冗長)</b>：3人以上が対応できる作業のうち、その人が持つ数（休んでも穴が空きにくい）</li>
+      </ul>
+      <div class="help-formula">スコア ＝ 単独対応 × 10 ＋ 単独マスター × 4</div>
+      <div class="help-sev"><b>重大度</b>：30以上=<span style="color:#c0392b">重大</span> ／ 15以上=<span style="color:#e5534b">高</span> ／ 6以上=<span style="color:#e0a72e">中</span> ／ 未満=<span style="color:#2fa866">低</span></div>
+      <div class="help-note">「冗長カバー型（頼れる代替）」＝単独対応・単独マスターが0、かつ共通(冗長)が3件以上の人。下のバーは 赤＝単独対応／緑＝共通 の割合。</div>
+    </div>
     <div id="workerRiskSummary"></div>
     <div id="workerRiskList"></div>
   </div>
 
   <div class="card" style="padding:18px 20px;margin-bottom:20px">
-    <h3 style="font-size:15px;margin-bottom:2px">改善優先リスト</h3>
+    <h3 style="font-size:15px;margin-bottom:2px">改善優先リスト<button class="help-btn" data-help="helpTaskRisk" title="スコアの計算方法">？</button></h3>
     <div class="desc" style="font-size:11.5px;color:var(--ink-dim);margin-bottom:14px">属人化スコアが高い順。スコアは「マスターの少なさ・対応可能者の少なさ・手順書の有無」から算出（高いほど危険）</div>
+    <div class="help-box" id="helpTaskRisk" style="display:none">
+      <div class="help-h">作業別スコアの計算（加点方式）</div>
+      <ul>
+        <li><b>マスター（レベル3）の少なさ</b>：0人 → ＋50 ／ 1人 → ＋30</li>
+        <li><b>対応可能（レベル1以上）の少なさ</b>：0人 → ＋30 ／ 1人 → ＋18 ／ 2人 → ＋6</li>
+        <li><b>手順書なし</b>：＋15</li>
+      </ul>
+      <div class="help-sev"><b>重大度</b>：60以上=<span style="color:#c0392b">重大</span> ／ 35以上=<span style="color:#e5534b">高</span> ／ 18以上=<span style="color:#e0a72e">中</span> ／ 未満=<span style="color:#2fa866">低</span></div>
+      <div class="help-note">点数が高いほど「その作業を担える人が少なく、引き継ぎも難しい」状態です。</div>
+    </div>
     <div id="riskList"></div>
   </div>
 
@@ -1500,6 +1533,11 @@ document.querySelectorAll('.brush-btn').forEach(b=>b.addEventListener('click',()
   document.querySelectorAll('.brush-btn').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
   brushLevel=b.dataset.brush==='cycle'?null:Number(b.dataset.brush);
+}));
+// スコア説明（？）の開閉
+document.querySelectorAll('.help-btn').forEach(b=>b.addEventListener('click',()=>{
+  const box=document.getElementById(b.dataset.help);
+  if(box)box.style.display=(box.style.display==='none'?'block':'none');
 }));
 // ドラッグ塗りの終了 → 小計・合計・レーダーを確定描画
 document.addEventListener('mouseup',()=>{ if(painting){painting=false;renderMatrix();} });
