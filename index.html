@@ -205,6 +205,16 @@
   .risk-action .h{font-weight:800;font-size:10.5px;letter-spacing:.03em;color:var(--primary);margin-bottom:2px}
   .sev-pill{display:inline-block;font-size:10px;font-weight:800;padding:2px 9px;border-radius:999px;color:#fff}
   @media(max-width:760px){.risk-item{flex-wrap:wrap}.risk-action{max-width:none}}
+  .wr-tag{display:inline-block;font-size:10px;font-weight:800;padding:2px 9px;border-radius:6px;margin-left:8px;vertical-align:middle}
+  .wr-tag.danger{background:#fdeceb;color:#c0392b}
+  .wr-tag.safe{background:#e7f6ee;color:#1f8a4c}
+  .wr-summary{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;margin-bottom:14px}
+  .wr-summary .box{flex:1;min-width:200px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:var(--panel)}
+  .wr-summary .box .k{font-size:10.5px;color:var(--ink-dim);font-weight:700}
+  .wr-summary .box .v{font-size:15px;font-weight:800;margin-top:2px}
+  .wr-bar{height:7px;border-radius:4px;background:var(--lv0);overflow:hidden;margin-top:7px;display:flex}
+  .wr-bar .uniq{background:var(--lv1);height:100%}
+  .wr-bar .shar{background:var(--lv3);height:100%}
   .heat-name{text-align:left;padding:9px 12px;font-size:12px;font-weight:600;background:var(--surface);white-space:nowrap}
   .heat-cell{width:46px;height:40px;font-size:12px;font-weight:800;color:#fff;text-align:center}
   .heat-row-sev{font-size:11px;font-weight:800;padding:0 12px;white-space:nowrap}
@@ -364,6 +374,13 @@
 
 <div class="view" id="view-risk">
   <div class="kpi-grid" id="riskKpi"></div>
+
+  <div class="card" style="padding:18px 20px;margin-bottom:20px">
+    <h3 style="font-size:15px;margin-bottom:2px">担当者別 属人化リスク</h3>
+    <div class="desc" style="font-size:11.5px;color:var(--ink-dim);margin-bottom:12px">その人が抜けると業務が止まる度合い（単独対応・単独マスターを合算）が高い順。逆に多人数で共有できる作業を多く持つ人は「冗長カバー型」として安全側に表示</div>
+    <div id="workerRiskSummary"></div>
+    <div id="workerRiskList"></div>
+  </div>
 
   <div class="card" style="padding:18px 20px;margin-bottom:20px">
     <h3 style="font-size:15px;margin-bottom:2px">改善優先リスト</h3>
@@ -963,6 +980,35 @@ function riskRanking(){
     .sort((x,y)=>y.r.score-x.r.score);
 }
 
+// 担当者ごとの属人化リスク（その人が抜けると止まる度合い）。冗長カバー型も判定
+function workerRiskRanking(){
+  const aw=workers.filter(w=>w.active);
+  const at=tasks.filter(t=>t.active);
+  // 各作業の「対応可能人数」「マスター人数」を事前集計
+  const ableCnt={},masterCnt={};
+  at.forEach(t=>{
+    ableCnt[t.id]=aw.filter(w=>getLv(t.id,w.id)>=1).length;
+    masterCnt[t.id]=aw.filter(w=>getLv(t.id,w.id)===3).length;
+  });
+  const rows=aw.map((w,i)=>{
+    let soleAble=0,soleMaster=0,able=0,redundant=0;
+    at.forEach(t=>{
+      const lv=getLv(t.id,w.id);
+      if(lv>=1){ able++; if(ableCnt[t.id]===1)soleAble++; if(ableCnt[t.id]>=3)redundant++; }
+      if(lv===3&&masterCnt[t.id]===1)soleMaster++;   // その作業の唯一のマスター
+    });
+    const score=soleAble*10+soleMaster*4;
+    let sev,sevColor;
+    if(score>=30){sev='重大';sevColor='#c0392b';}
+    else if(score>=15){sev='高';sevColor='#e5534b';}
+    else if(score>=6){sev='中';sevColor='#e0a72e';}
+    else{sev='低';sevColor='#2fa866';}
+    return {w,i,soleAble,soleMaster,able,redundant,score,sev,sevColor};
+  });
+  rows.sort((a,b)=>b.score-a.score||b.able-a.able);
+  return rows;
+}
+
 function renderRisk(){
   const aw=workers.filter(w=>w.active);
   const ranked=riskRanking();
@@ -1020,6 +1066,43 @@ function renderRisk(){
   });
   html+='</tbody></table>';
   $('#riskHeat').innerHTML=html;
+
+  // 担当者別 属人化リスク
+  const wr=workerRiskRanking();
+  const topRisk=wr.find(x=>x.score>0);
+  const topRedundant=wr.slice().sort((a,b)=>b.redundant-a.redundant)[0];
+  $('#workerRiskSummary').innerHTML=
+    '<div class="wr-summary">'+
+      '<div class="box"><div class="k">最も属人化を抱える人</div><div class="v">'+
+        (topRisk?esc(topRisk.w.name)+' さん（スコア '+topRisk.score+'）':'該当なし（よく分散）')+'</div></div>'+
+      '<div class="box"><div class="k">最も頼れる代替（冗長カバー）</div><div class="v">'+
+        ((topRedundant&&topRedundant.redundant>0)?esc(topRedundant.w.name)+' さん（共通 '+topRedundant.redundant+' 件）':'該当なし')+'</div></div>'+
+    '</div>';
+  $('#workerRiskList').innerHTML=wr.map((x,idx)=>{
+    const w=x.w;
+    const facts=[
+      '単独対応 <span class="'+(x.soleAble>0?'risk-fact-bad':'')+'">'+x.soleAble+'件</span>',
+      '単独マスター <span class="'+(x.soleMaster>0?'risk-fact-bad':'')+'">'+x.soleMaster+'件</span>',
+      '対応可能 '+x.able+'件',
+      '共通(冗長) '+x.redundant+'件'
+    ].join('');
+    let tag='';
+    if(x.score>0&&idx===0)tag='<span class="wr-tag danger">属人化を多く抱える（要分散）</span>';
+    else if(x.soleAble+x.soleMaster===0&&x.redundant>=3)tag='<span class="wr-tag safe">冗長カバー型（頼れる代替）</span>';
+    const uniqW=x.able?Math.round(x.soleAble/x.able*100):0;
+    const sharW=x.able?Math.round(x.redundant/x.able*100):0;
+    return '<div class="risk-item">'+
+      '<div class="risk-rank">'+(idx+1)+'</div>'+
+      '<div class="risk-score"><div class="num" style="color:'+x.sevColor+'">'+x.score+'</div>'+
+        '<span class="sev-pill" style="background:'+x.sevColor+'">'+x.sev+'</span></div>'+
+      '<div class="risk-main">'+
+        '<div style="display:flex;align-items:center;gap:8px">'+workerAvatarHtml(w,x.i,'worker-mini-avatar')+
+          '<span class="risk-title">'+esc(w.name)+'</span>'+tag+'</div>'+
+        '<div class="risk-facts">'+facts+'</div>'+
+        '<div class="wr-bar" title="赤=単独対応 / 緑=共通(冗長)"><span class="uniq" style="width:'+uniqW+'%"></span><span class="shar" style="width:'+sharW+'%"></span></div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
 }
 
 function drawCharts(){
