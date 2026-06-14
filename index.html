@@ -254,6 +254,11 @@
   .item-row:hover{background:#FAF7F1}
   .item-row.disabled{opacity:.5}
   .item-row .meta{font-size:11px;color:var(--ink-dim)}
+  .drag-handle{flex:0 0 auto;cursor:grab;color:var(--ink-dim);font-size:15px;line-height:1;padding:0 2px;user-select:none}
+  .drag-handle:active{cursor:grabbing}
+  .item-row.dragging{opacity:.45}
+  .item-row.drop-before{box-shadow:inset 0 3px 0 0 var(--brand)}
+  .item-row.drop-after{box-shadow:inset 0 -3px 0 0 var(--brand)}
   .task-group-head{font-size:11.5px;font-weight:800;color:var(--brand);background:var(--brand-soft);
     border:1px solid var(--line);border-radius:8px;margin:12px 0 7px;overflow:hidden}
   .task-group-head:first-child{margin-top:0}
@@ -271,7 +276,7 @@
   .task-info{min-width:0;display:flex;align-items:baseline;gap:4px;white-space:nowrap;overflow:hidden}
   .task-info strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .task-info .meta{flex:0 0 auto;white-space:nowrap}
-  .task-actions{display:grid;grid-template-columns:34px 34px 46px 58px 46px;gap:4px;align-items:center}
+  .task-actions{display:grid;grid-template-columns:46px 58px 46px;gap:4px;align-items:center}
   .task-actions .mini-btn{height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
 
   .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(80px);
@@ -1186,12 +1191,12 @@ function recordSnapshot(){
 
 function renderAdmin(){
   $('#workerList').innerHTML=workers.map((w,i)=>
-    '<div class="item-row '+(w.active?'':'disabled')+'">'+
-      '<div style="display:flex;align-items:center;gap:8px">'+workerAvatarHtml(w,i,'worker-mini-avatar')+
+    '<div class="item-row '+(w.active?'':'disabled')+'" data-dnd="W" data-id="'+w.id+'">'+
+      '<div style="display:flex;align-items:center;gap:8px">'+
+        '<span class="drag-handle" draggable="true" title="ドラッグで並べ替え">⠿</span>'+
+        workerAvatarHtml(w,i,'worker-mini-avatar')+
         '<div><strong>'+esc(w.name)+'</strong> <span class="meta">'+esc(w.code||'')+'</span></div></div>'+
       '<div style="display:flex;gap:4px">'+
-        '<button class="mini-btn" data-act="upW" data-id="'+w.id+'" '+(i===0?'disabled style="opacity:.3"':'')+'>↑</button>'+
-        '<button class="mini-btn" data-act="dnW" data-id="'+w.id+'" '+(i===workers.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
         '<button class="mini-btn" data-act="editW" data-id="'+w.id+'">編集</button>'+
         '<button class="'+(w.active?'danger':'primary')+' mini-btn" data-act="'+(w.active?'disW':'enW')+'" data-id="'+w.id+'">'+(w.active?'無効化':'復活')+'</button>'+
         '<button class="danger mini-btn" data-act="delW" data-id="'+w.id+'">削除</button>'+
@@ -1201,14 +1206,13 @@ function renderAdmin(){
   // 大分類一覧（並び順）
   const cats=categories.slice().sort((a,b)=>a.order-b.order);
   $('#catList').innerHTML=cats.map((c,i)=>
-    '<div class="item-row '+(c.active?'':'disabled')+'">'+
+    '<div class="item-row '+(c.active?'':'disabled')+'" data-dnd="C" data-id="'+c.id+'">'+
       '<div style="display:flex;align-items:center;gap:8px">'+
+        '<span class="drag-handle" draggable="true" title="ドラッグで並べ替え">⠿</span>'+
         '<span style="width:12px;height:12px;border-radius:3px;background:'+(c.color||'#94a3b8')+';flex:0 0 auto"></span>'+
         '<div><strong>'+esc(c.code?('['+c.code+'] '):'')+esc(c.name)+'</strong> <span class="meta">'+tasks.filter(t=>t.catId===c.id&&t.active).length+'作業</span></div>'+
       '</div>'+
       '<div style="display:flex;gap:4px">'+
-        '<button class="mini-btn" data-act="upC" data-id="'+c.id+'" '+(i===0?'disabled style="opacity:.3"':'')+'>↑</button>'+
-        '<button class="mini-btn" data-act="dnC" data-id="'+c.id+'" '+(i===cats.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
         '<button class="mini-btn" data-act="editC" data-id="'+c.id+'">編集</button>'+
         '<button class="'+(c.active?'danger':'primary')+' mini-btn" data-act="'+(c.active?'disC':'enC')+'" data-id="'+c.id+'">'+(c.active?'無効化':'復活')+'</button>'+
         '<button class="danger mini-btn" data-act="delC" data-id="'+c.id+'">削除</button>'+
@@ -1235,13 +1239,12 @@ function renderAdmin(){
     '</div>';
     th+='<div class="task-group-body '+(collapsed?'collapsed':'')+'">';
     g.tasks.forEach((t,i)=>{
-      th+='<div class="item-row task-item-row '+(t.active?'':'disabled')+'">'+
-        '<div class="task-info"><strong>'+esc(t.code?(t.code+' '):'')+esc(t.name)+'</strong> '+
+      th+='<div class="item-row task-item-row '+(t.active?'':'disabled')+'" data-dnd="T" data-id="'+t.id+'" data-group="'+esc(groupKey)+'">'+
+        '<div class="task-info"><span class="drag-handle" draggable="true" title="ドラッグで並べ替え">⠿</span>'+
+          '<strong>'+esc(t.code?(t.code+' '):'')+esc(t.name)+'</strong> '+
           '<span class="meta">'+(t.hasDoc?'手順書あり':'手順書なし')+
           (t.link?' ・<a class="doc-link" href="'+esc(t.link)+'" target="_blank">リンク</a>':(t.hasDoc?' ・リンク未設定':''))+'</span></div>'+
         '<div class="task-actions">'+
-          '<button class="mini-btn" data-act="upT" data-id="'+t.id+'" '+(i===0?'disabled style="opacity:.3"':'')+'>↑</button>'+
-          '<button class="mini-btn" data-act="dnT" data-id="'+t.id+'" '+(i===g.tasks.length-1?'disabled style="opacity:.3"':'')+'>↓</button>'+
           '<button class="mini-btn" data-act="editT" data-id="'+t.id+'">編集</button>'+
           '<button class="'+(t.active?'danger':'primary')+' mini-btn" data-act="'+(t.active?'disT':'enT')+'" data-id="'+t.id+'">'+(t.active?'無効化':'復活')+'</button>'+
           '<button class="danger mini-btn" data-act="delT" data-id="'+t.id+'">削除</button>'+
@@ -1275,6 +1278,88 @@ function renderAdmin(){
     else if(act==='editC'){openCatEdit(id);return;}
     renderAll();
   }));
+  wireDnd();
+}
+
+/* =========================================================
+   ドラッグ＆ドロップ並べ替え（作業者=W / 大分類=C / 作業=T）
+   ========================================================= */
+let dndDragRow=null;
+function clearDropMarks(){
+  document.querySelectorAll('.item-row.drop-before,.item-row.drop-after')
+    .forEach(r=>r.classList.remove('drop-before','drop-after'));
+}
+// 同じ並べ替え対象か（作業は同じ大分類グループ内のみ）
+function dndCompatible(row){
+  if(!dndDragRow||dndDragRow===row)return false;
+  if(dndDragRow.dataset.dnd!==row.dataset.dnd)return false;
+  if(row.dataset.dnd==='T'&&dndDragRow.dataset.group!==row.dataset.group)return false;
+  return true;
+}
+function wireDnd(){
+  ['#workerList','#catList','#taskList'].forEach(sel=>{
+    const list=$(sel); if(!list)return;
+    list.querySelectorAll('.drag-handle').forEach(h=>{
+      h.addEventListener('dragstart',e=>{
+        const row=h.closest('.item-row'); if(!row)return;
+        dndDragRow=row; row.classList.add('dragging');
+        e.dataTransfer.effectAllowed='move';
+        try{e.dataTransfer.setData('text/plain',row.dataset.id||'');}catch(_){}
+      });
+      h.addEventListener('dragend',()=>{ if(dndDragRow)dndDragRow.classList.remove('dragging'); clearDropMarks(); dndDragRow=null; });
+    });
+    list.querySelectorAll('.item-row[data-dnd]').forEach(row=>{
+      row.addEventListener('dragover',e=>{
+        if(!dndCompatible(row))return;
+        e.preventDefault(); e.dataTransfer.dropEffect='move';
+        const r=row.getBoundingClientRect();
+        const before=(e.clientY-r.top)<r.height/2;
+        clearDropMarks(); row.classList.add(before?'drop-before':'drop-after');
+      });
+      row.addEventListener('dragleave',()=>row.classList.remove('drop-before','drop-after'));
+      row.addEventListener('drop',e=>{
+        if(!dndCompatible(row))return;
+        e.preventDefault();
+        const r=row.getBoundingClientRect();
+        const before=(e.clientY-r.top)<r.height/2;
+        applyDrop(dndDragRow.dataset.dnd,dndDragRow.dataset.id,row.dataset.id,before);
+      });
+    });
+  });
+}
+// ドラッグした項目を対象の前/後ろへ移動して並びを確定
+function applyDrop(type,dragId,targetId,before){
+  if(dragId===targetId)return;
+  if(type==='W'){
+    const from=workers.findIndex(w=>w.id===dragId); if(from<0)return;
+    const item=workers.splice(from,1)[0];
+    let to=workers.findIndex(w=>w.id===targetId); if(to<0){workers.splice(from,0,item);return;}
+    if(!before)to+=1;
+    workers.splice(to,0,item);
+    markDirty('workers');
+  }else if(type==='C'){
+    const ordered=categories.slice().sort((a,b)=>a.order-b.order);
+    const from=ordered.findIndex(c=>c.id===dragId); if(from<0)return;
+    const item=ordered.splice(from,1)[0];
+    let to=ordered.findIndex(c=>c.id===targetId); if(to<0)return;
+    if(!before)to+=1;
+    ordered.splice(to,0,item);
+    ordered.forEach((c,i)=>c.order=i+1);
+    markDirty('categories');
+  }else if(type==='T'){
+    let g=null;
+    groupedTasks().forEach(gr=>{ if(gr.tasks.some(t=>t.id===dragId))g=gr; });
+    if(!g)return;
+    const ordered=g.tasks.slice();
+    const from=ordered.findIndex(t=>t.id===dragId); if(from<0)return;
+    const item=ordered.splice(from,1)[0];
+    let to=ordered.findIndex(t=>t.id===targetId); if(to<0)return;
+    if(!before)to+=1;
+    ordered.splice(to,0,item);
+    ordered.forEach((t,i)=>t.order=i+1);
+    markDirty('tasks');
+  }
+  renderAll();
 }
 
 /* =========================================================
