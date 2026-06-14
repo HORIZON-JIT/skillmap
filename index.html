@@ -314,7 +314,6 @@
     </div>
   </div>
   <div class="toolbar">
-    <button id="snapBtn">今月のスナップショット記録</button>
     <button class="primary" id="saveBtn">保存</button>
   </div>
 </header>
@@ -435,11 +434,11 @@
 
 <div class="view" id="view-admin">
   <div class="snap-bar">
-    <span class="note">スナップショットは月末などに記録します。記録した時点の各人の合計点・課の充足率・属人化作業数がダッシュボードのチャートに反映されます。</span>
+    <span class="note">スナップショットは月末などに記録します。記録した時点の各人の合計点・課の充足率・属人化作業数がダッシュボードのチャートに反映されます（同月内に再度押すと上書き）。</span>
+    <button class="primary mini-btn" id="snapBtn">今月のスナップショットを記録</button>
     <button class="mini-btn" id="exportBtn">JSONエクスポート</button>
     <button class="mini-btn" id="importBtn">JSONインポート（復元）</button>
     <input type="file" id="importFile" accept="application/json,.json" style="display:none">
-    <button class="mini-btn" id="migrateBtn" style="display:none">現データをFirebaseへ移行</button>
   </div>
   <div class="admin-grid">
     <div class="admin-col">
@@ -1177,16 +1176,16 @@ function recordSnapshot(){
   const cur=calcCurrent();
   const rec={month:month,totals:Object.assign({},cur.totals),fill:cur.fill,risk:cur.risk};
   const idx=snapshots.findIndex(s=>s.month===month);
-  if(idx>=0){
-    if(!confirm(month+' のスナップショットは既にあります。上書きしますか？'))return;
-    snapshots[idx]=rec;
+  const overwrite=idx>=0;
+  if(overwrite){
+    snapshots[idx]=rec;                       // 同月内に2度押したら上書き
   }else{
     snapshots.push(rec);
     snapshots.sort((a,b)=>a.month.localeCompare(b.month));
   }
   markDirty('snapshots');
-  toast(month+' のスナップショットを記録しました');
-  renderDash();
+  toast(month+' のスナップショットを'+(overwrite?'上書き':'記録')+'しました');
+  if($('#view-dash').classList.contains('active'))renderDash();
 }
 
 function renderAdmin(){
@@ -1845,26 +1844,6 @@ async function saveDataFirebase(){
   }catch(e){toast('保存に失敗しました');console.error(e);}
   finally{$('#saveBtn').textContent='保存';}
 }
-// 既存GASスプレッドシートの全データをFirestoreへ一括コピー（1回限り）
-async function migrateFromGas(){
-  if(!USE_FIREBASE){toast('Firebaseが未設定です');return;}
-  if(!GAS_URL){toast('移行元のGAS_URLがありません');return;}
-  if(!confirm('現在のGASスプレッドシートの全データをFirebaseへ移行します。\n（同じIDは上書きされます）よろしいですか？'))return;
-  toast('移行中…GASから取得しています');
-  try{
-    const d=await jsonp({action:'load',avatars:'1'});
-    if(!d||((!d.workers||!d.workers.length)&&(!d.tasks||!d.tasks.length))){toast('GASからデータを取得できませんでした');return;}
-    const ops=[];
-    (d.workers||[]).forEach((w,i)=>ops.push({ref:fdb.collection('workers').doc(w.id),data:workerDoc(w,i)}));
-    (d.categories||[]).forEach(c=>ops.push({ref:fdb.collection('categories').doc(c.id),data:catDoc(c)}));
-    (d.tasks||[]).forEach(t=>ops.push({ref:fdb.collection('tasks').doc(t.id),data:taskDoc(t)}));
-    Object.keys(d.skills||{}).forEach(k=>{const p=k.split('|');ops.push({ref:fdb.collection('skills').doc(k),data:{taskId:p[0]||'',workerId:p[1]||'',level:Number(d.skills[k]||0)}});});
-    (d.snapshots||[]).forEach(s=>ops.push({ref:fdb.collection('snapshots').doc(s.month),data:snapDoc(s)}));
-    await commitOps(ops);
-    toast('移行完了（'+ops.length+'件）。再読込します');
-    setTimeout(()=>location.reload(),1500);
-  }catch(e){toast('移行に失敗しました');console.error(e);}
-}
 /* ========================= バックアップ（JSONエクスポート／インポート復元） ========================= */
 // 現在のデータを1つのJSONにまとめて返す
 function buildBackup(){
@@ -1945,7 +1924,6 @@ function showLoginGate(msg,isError){
 function hideLoginGate(){$('#loginGate').style.display='none';}
 let appLoaded=false;
 function startApp(){
-  if($('#migrateBtn'))$('#migrateBtn').style.display=(USE_FIREBASE&&GAS_URL)?'':'none';
   if(!USE_FIREBASE){hideLoginGate();loadData();return;}
   fauth.onAuthStateChanged(user=>{
     if(user&&emailAllowed(user.email)){
@@ -1965,7 +1943,6 @@ $('#loginBtn')&&$('#loginBtn').addEventListener('click',()=>{
   provider.setCustomParameters({hd:ALLOWED_DOMAIN,prompt:'select_account'});
   fauth.signInWithPopup(provider).catch(e=>{showLoginGate('ログインに失敗しました：'+(e&&e.message||e),true);});
 });
-$('#migrateBtn')&&$('#migrateBtn').addEventListener('click',migrateFromGas);
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 startApp();
 </script>
