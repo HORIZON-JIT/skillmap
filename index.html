@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>生産管理課 スキルマップ</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- Firebase（保存先）。firebaseConfig を設定すると GAS ではなく Firestore に保存されます -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --primary:#8A6A37;
@@ -230,9 +234,28 @@
     background:var(--ink);color:#fff;padding:12px 22px;border-radius:10px;font-size:13px;font-weight:600;
     box-shadow:0 8px 28px rgba(0,0,0,.25);opacity:0;transition:.3s;pointer-events:none;z-index:50}
   .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+  .login-gate{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+    background:var(--bg)}
+  .login-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);
+    padding:34px 38px;max-width:360px;width:90%;text-align:center}
+  .login-card h2{font-size:18px;font-weight:800;margin:14px 0 8px}
+  .login-card .login-msg{font-size:12.5px;color:var(--ink-dim);margin-bottom:20px;line-height:1.7}
+  .login-card .login-msg.error{color:var(--lv1);font-weight:700}
+  .login-mark .dot{width:12px;height:40px;border-radius:3px;margin:0 auto;
+    background:linear-gradient(180deg,var(--lv3) 0%,var(--lv2) 50%,var(--lv1) 100%)}
+  .login-card button{width:100%;padding:11px 15px;font-size:14px}
 </style>
 </head>
 <body>
+<div id="loginGate" class="login-gate" style="display:none">
+  <div class="login-card">
+    <div class="login-mark"><div class="dot"></div></div>
+    <h2>生産管理課 スキルマップ</h2>
+    <p class="login-msg" id="loginMsg">社内アカウント（@horizon.co.jp）でログインしてください。</p>
+    <button class="primary" id="loginBtn">Googleでログイン</button>
+  </div>
+</div>
 <header>
   <div class="brand-mark">
     <div class="dot"></div>
@@ -317,6 +340,7 @@
 <div class="view" id="view-admin">
   <div class="snap-bar">
     <span class="note">スナップショットは月末などに記録します。記録した時点の各人の合計点・課の充足率・属人化作業数がダッシュボードのチャートに反映されます。</span>
+    <button class="mini-btn" id="migrateBtn" style="display:none">現データをFirebaseへ移行</button>
   </div>
   <div class="admin-grid">
     <div class="admin-col">
@@ -417,6 +441,11 @@ let showDisabled=false, dirty=false;
 const dirtyKeys=new Set();
 const avatarDirtyIds=new Set();
 const skillDirtyKeys=new Set();
+// Firebase保存で「削除されたドキュメント」を反映するための記録
+const deletedWorkerIds=new Set();
+const deletedCatIds=new Set();
+const deletedTaskIds=new Set();
+const deletedSkillKeys=new Set();
 const matrixGroupCollapsed={};
 const taskGroupCollapsed={};
 const charts={};
@@ -489,6 +518,7 @@ function applyLoadedData(d){
   dirtyKeys.clear();
   avatarDirtyIds.clear();
   skillDirtyKeys.clear();
+  deletedWorkerIds.clear();deletedCatIds.clear();deletedTaskIds.clear();deletedSkillKeys.clear();
 }
 async function loadAvatarsLater(){
   try{
@@ -1007,7 +1037,7 @@ function renderAdmin(){
    ========================================================= */
 // 指定作業の評価記録を全削除
 function purgeTaskSkills(tid){
-  Object.keys(skills).forEach(k=>{ if(k.indexOf(tid+'|')===0) delete skills[k]; });
+  Object.keys(skills).forEach(k=>{ if(k.indexOf(tid+'|')===0){ deletedSkillKeys.add(k); delete skills[k]; } });
 }
 // 作業者を削除（その人の全評価記録・スナップショット内の合計も掃除）
 function deleteWorker(id){
@@ -1015,7 +1045,8 @@ function deleteWorker(id){
   const cnt=tasks.filter(t=>getLv(t.id,id)>0).length;
   if(!confirm(w.name+' さんを完全に削除します。\n評価記録（'+cnt+'件）も削除され、元に戻せません。よろしいですか？'))return;
   workers=workers.filter(x=>x.id!==id);
-  Object.keys(skills).forEach(k=>{ if(k.slice(-id.length-1)==='|'+id) delete skills[k]; });
+  deletedWorkerIds.add(id);
+  Object.keys(skills).forEach(k=>{ if(k.slice(-id.length-1)==='|'+id){ deletedSkillKeys.add(k); delete skills[k]; } });
   snapshots.forEach(s=>{ if(s.totals) delete s.totals[id]; });
   rememberWorkerAvatars();
   markDirty('workers','skills','snapshots'); renderAll(); toast('作業者を削除しました');
@@ -1025,6 +1056,7 @@ function deleteTask(id){
   const t=tasks.find(x=>x.id===id); if(!t)return;
   if(!confirm('作業「'+t.name+'」を完全に削除します。\n全員ぶんの評価記録も削除され、元に戻せません。よろしいですか？'))return;
   tasks=tasks.filter(x=>x.id!==id);
+  deletedTaskIds.add(id);
   purgeTaskSkills(id);
   markDirty('tasks','skills'); renderAll(); toast('作業を削除しました');
 }
@@ -1036,9 +1068,10 @@ function deleteCat(id){
   if(ts.length)msg+='\n属する作業 '+ts.length+' 件と、その評価記録もすべて削除されます。';
   msg+='\n元に戻せません。よろしいですか？';
   if(!confirm(msg))return;
-  ts.forEach(t=>purgeTaskSkills(t.id));
+  ts.forEach(t=>{ deletedTaskIds.add(t.id); purgeTaskSkills(t.id); });
   tasks=tasks.filter(t=>t.catId!==id);
   categories=categories.filter(x=>x.id!==id);
+  deletedCatIds.add(id);
   markDirty('categories','tasks','skills'); renderAll(); toast('大分類を削除しました');
 }
 
@@ -1259,6 +1292,30 @@ function renderAll(){renderMatrix();renderAdmin();if($('#view-dash').classList.c
    空のままだとローカルモード（保存されない試作）で動きます。 */
 const GAS_URL='https://script.google.com/a/macros/horizon.co.jp/s/AKfycbxxjrZmFVMT-ik_IR2Xe3k5LYTQUOydFbtId9jF5rsEQDsewoPf5ep3hcBuzvV9Yi-IFA/exec';
 
+/* ▼▼▼ Firebase 設定 ▼▼▼
+   Firebase コンソールで取得した webアプリの設定を貼り付けると、
+   GAS（スプレッドシート）ではなく Firestore に保存・読込されます。
+   未設定（apiKey が 'YOUR_…' のまま）なら従来どおり GAS で動きます。
+   ※ apiKey はクライアントに出ますが Firebase 仕様上それで正常。
+     セキュリティは「Googleログイン＋Firestoreルールでドメイン限定」で担保します。 */
+const firebaseConfig={
+  apiKey:'YOUR_API_KEY',
+  authDomain:'YOUR_PROJECT.firebaseapp.com',
+  projectId:'YOUR_PROJECT',
+  appId:'YOUR_APP_ID'
+};
+const ALLOWED_DOMAIN='horizon.co.jp';
+const USE_FIREBASE=!!(window.firebase&&firebaseConfig.apiKey&&firebaseConfig.apiKey.indexOf('YOUR_')===-1);
+let fdb=null,fauth=null,currentUser=null;
+if(USE_FIREBASE){
+  firebase.initializeApp(firebaseConfig);
+  fdb=firebase.firestore();
+  fauth=firebase.auth();
+  // オフライン/キャッシュで起動を高速化（複数タブ時に失敗しても無視）
+  fdb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+}
+const emailAllowed=email=>!!email&&email.toLowerCase().endsWith('@'+ALLOWED_DOMAIN);
+
 // JSONPでGET（社内ドメイン限定デプロイでも社内ログイン済みなら通る）
 function jsonp(params){
   return new Promise((resolve,reject)=>{
@@ -1275,6 +1332,7 @@ function jsonp(params){
 }
 
 async function loadData(){
+  if(USE_FIREBASE)return loadFromFirestore();
   if(!GAS_URL){renderAll();return;}
   const cached=loadDataCache();
   if(cached&&cached.workers&&cached.tasks){
@@ -1300,6 +1358,7 @@ async function loadData(){
 }
 
 async function saveData(){
+  if(USE_FIREBASE)return saveDataFirebase();
   if(!GAS_URL){toast('ローカルモードのため保存されません');dirty=false;return;}
   rememberWorkerAvatars();
   $('#saveBtn').textContent='保存中…';
@@ -1352,12 +1411,134 @@ function saveOk(){
   avatarDirtyIds.clear();
   skillDirtyKeys.clear();
   dirtyKeys.clear();
+  deletedWorkerIds.clear();deletedCatIds.clear();deletedTaskIds.clear();deletedSkillKeys.clear();
   dirty=false;toast('保存しました');
   $('#statusDot').classList.add('online');
   $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';
 }
+/* ========================= Firebase（Firestore）保存・読込 ========================= */
+// Firestore から全データを読み込む（キャッシュで即時描画→最新で上書き）
+async function loadFromFirestore(){
+  const cached=loadDataCache();
+  if(cached&&cached.workers&&cached.tasks){
+    applyLoadedData(cached);
+    $('#statusText').textContent='キャッシュ表示中（同期中）';
+    renderAll();
+  }
+  try{
+    const [wS,cS,tS,kS,sS]=await Promise.all([
+      fdb.collection('workers').get(),
+      fdb.collection('categories').get(),
+      fdb.collection('tasks').get(),
+      fdb.collection('skills').get(),
+      fdb.collection('snapshots').get(),
+    ]);
+    const ws=wS.docs.map(d=>Object.assign({id:d.id},d.data())).sort((a,b)=>(a.ord||0)-(b.ord||0));
+    const cs=cS.docs.map(d=>Object.assign({id:d.id},d.data()));
+    const ts=tS.docs.map(d=>Object.assign({id:d.id},d.data()));
+    const sk={}; kS.docs.forEach(d=>{sk[d.id]=Number((d.data()||{}).level||0);});
+    const snaps=sS.docs.map(d=>{const x=d.data()||{};return {month:d.id,fill:Number(x.fill||0),risk:Number(x.risk||0),totals:x.totals||{}};})
+      .sort((a,b)=>a.month.localeCompare(b.month));
+    if(!ws.length&&!ts.length){
+      $('#statusDot').classList.add('online');
+      $('#statusText').textContent='接続済み・データ未保存（保存ボタンで初回登録／管理タブから移行）';
+      renderAll();return;
+    }
+    applyLoadedData({workers:ws,categories:cs,tasks:ts,skills:sk,snapshots:snaps});
+    saveDataCache();
+    $('#statusDot').classList.add('online');
+    $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 読込）';
+    renderAll();
+  }catch(e){toast('読み込みに失敗しました');console.error(e);renderAll();}
+}
+// 変更/削除を1つのバッチ（必要なら分割）でコミット
+async function commitOps(ops){
+  for(let i=0;i<ops.length;i+=450){
+    const batch=fdb.batch();
+    ops.slice(i,i+450).forEach(o=>{o.del?batch.delete(o.ref):batch.set(o.ref,o.data);});
+    await batch.commit();
+  }
+}
+function workerDoc(w,i){return {name:w.name||'',code:w.code||'',active:w.active!==false,ord:i,avatarDataUrl:w.avatarDataUrl||''};}
+function catDoc(c){return {code:c.code||'',name:c.name||'',color:c.color||'',order:Number(c.order||0),active:c.active!==false};}
+function taskDoc(t){return {code:t.code||'',name:t.name||'',catId:t.catId||'',order:Number(t.order||0),hasDoc:!!t.hasDoc,link:t.link||'',active:t.active!==false};}
+function snapDoc(s){return {fill:Number(s.fill||0),risk:Number(s.risk||0),totals:s.totals||{}};}
+// 差分（変更されたコレクション／個別セル／削除）だけを書き込む
+async function saveToFirestore(){
+  const ops=[];
+  if(dirtyKeys.has('workers'))workers.forEach((w,i)=>ops.push({ref:fdb.collection('workers').doc(w.id),data:workerDoc(w,i)}));
+  deletedWorkerIds.forEach(id=>ops.push({ref:fdb.collection('workers').doc(id),del:true}));
+  if(dirtyKeys.has('categories'))categories.forEach(c=>ops.push({ref:fdb.collection('categories').doc(c.id),data:catDoc(c)}));
+  deletedCatIds.forEach(id=>ops.push({ref:fdb.collection('categories').doc(id),del:true}));
+  if(dirtyKeys.has('tasks'))tasks.forEach(t=>ops.push({ref:fdb.collection('tasks').doc(t.id),data:taskDoc(t)}));
+  deletedTaskIds.forEach(id=>ops.push({ref:fdb.collection('tasks').doc(id),del:true}));
+  if(dirtyKeys.has('skills'))skillDirtyKeys.forEach(k=>{const p=k.split('|');ops.push({ref:fdb.collection('skills').doc(k),data:{taskId:p[0]||'',workerId:p[1]||'',level:Number(skills[k]||0)}});});
+  deletedSkillKeys.forEach(k=>ops.push({ref:fdb.collection('skills').doc(k),del:true}));
+  if(dirtyKeys.has('snapshots'))snapshots.forEach(s=>ops.push({ref:fdb.collection('snapshots').doc(s.month),data:snapDoc(s)}));
+  if(!ops.length)return;
+  await commitOps(ops);
+}
+async function saveDataFirebase(){
+  rememberWorkerAvatars();
+  $('#saveBtn').textContent='保存中…';
+  try{
+    await saveToFirestore();
+    saveOk();
+  }catch(e){toast('保存に失敗しました');console.error(e);}
+  finally{$('#saveBtn').textContent='保存';}
+}
+// 既存GASスプレッドシートの全データをFirestoreへ一括コピー（1回限り）
+async function migrateFromGas(){
+  if(!USE_FIREBASE){toast('Firebaseが未設定です');return;}
+  if(!GAS_URL){toast('移行元のGAS_URLがありません');return;}
+  if(!confirm('現在のGASスプレッドシートの全データをFirebaseへ移行します。\n（同じIDは上書きされます）よろしいですか？'))return;
+  toast('移行中…GASから取得しています');
+  try{
+    const d=await jsonp({action:'load',avatars:'1'});
+    if(!d||((!d.workers||!d.workers.length)&&(!d.tasks||!d.tasks.length))){toast('GASからデータを取得できませんでした');return;}
+    const ops=[];
+    (d.workers||[]).forEach((w,i)=>ops.push({ref:fdb.collection('workers').doc(w.id),data:workerDoc(w,i)}));
+    (d.categories||[]).forEach(c=>ops.push({ref:fdb.collection('categories').doc(c.id),data:catDoc(c)}));
+    (d.tasks||[]).forEach(t=>ops.push({ref:fdb.collection('tasks').doc(t.id),data:taskDoc(t)}));
+    Object.keys(d.skills||{}).forEach(k=>{const p=k.split('|');ops.push({ref:fdb.collection('skills').doc(k),data:{taskId:p[0]||'',workerId:p[1]||'',level:Number(d.skills[k]||0)}});});
+    (d.snapshots||[]).forEach(s=>ops.push({ref:fdb.collection('snapshots').doc(s.month),data:snapDoc(s)}));
+    await commitOps(ops);
+    toast('移行完了（'+ops.length+'件）。再読込します');
+    setTimeout(()=>location.reload(),1500);
+  }catch(e){toast('移行に失敗しました');console.error(e);}
+}
+/* ========================= 起動・ログイン制御 ========================= */
+function showLoginGate(msg,isError){
+  const m=$('#loginMsg');
+  if(msg){m.textContent=msg;m.classList.toggle('error',!!isError);}
+  $('#loginGate').style.display='flex';
+}
+function hideLoginGate(){$('#loginGate').style.display='none';}
+let appLoaded=false;
+function startApp(){
+  if($('#migrateBtn'))$('#migrateBtn').style.display=(USE_FIREBASE&&GAS_URL)?'':'none';
+  if(!USE_FIREBASE){hideLoginGate();loadData();return;}
+  fauth.onAuthStateChanged(user=>{
+    if(user&&emailAllowed(user.email)){
+      currentUser=user;hideLoginGate();
+      if(!appLoaded){appLoaded=true;loadData();}
+    }else if(user){
+      fauth.signOut();
+      showLoginGate('このアプリは @'+ALLOWED_DOMAIN+' のアカウントのみ利用できます。',true);
+    }else{
+      showLoginGate();
+    }
+  });
+}
+$('#loginBtn')&&$('#loginBtn').addEventListener('click',()=>{
+  if(!USE_FIREBASE)return;
+  const provider=new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({hd:ALLOWED_DOMAIN,prompt:'select_account'});
+  fauth.signInWithPopup(provider).catch(e=>{showLoginGate('ログインに失敗しました：'+(e&&e.message||e),true);});
+});
+$('#migrateBtn')&&$('#migrateBtn').addEventListener('click',migrateFromGas);
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
-loadData();
+startApp();
 </script>
 </body>
 </html>
