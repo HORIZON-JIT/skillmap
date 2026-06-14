@@ -103,6 +103,8 @@
   th.sel-col,td.sel-col{box-shadow:inset 0 0 0 9999px rgba(31,111,235,.08)}
   thead th.sel-col{box-shadow:none;background:var(--brand-soft)}
   .cell.cell-focus{outline:3px solid var(--ink);outline-offset:-3px;position:relative;z-index:1}
+  th.worker-head{cursor:pointer}
+  th.worker-head:hover .worker-head-name{text-decoration:underline}
   .brush-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
   .brush-bar .brush-label{font-size:12px;color:var(--ink-dim);font-weight:700}
   .brush-btn{padding:5px 13px;border-radius:7px;font-weight:800;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
@@ -662,7 +664,7 @@ function renderMatrix(){
     '<th class="corner-cat">大分類</th>'+
     '<th class="corner-code">コード</th>'+
     '<th class="corner-task">中分類（クリックで加算）</th>';
-  aw.forEach((w,i)=>html+='<th class="worker-head'+(w.id===selectedWorkerId?' sel-col':'')+'"'+(w.active?'':' style="opacity:.45"')+'>'+
+  aw.forEach((w,i)=>html+='<th class="worker-head'+(w.id===selectedWorkerId?' sel-col':'')+'" data-w="'+w.id+'"'+(w.active?'':' style="opacity:.45"')+'>'+
     '<div class="worker-head-wrap">'+
       '<span class="worker-head-name">'+esc(w.name)+'</span>'+
       workerAvatarHtml(w,i,'worker-avatar')+
@@ -732,6 +734,9 @@ function renderMatrix(){
     c.addEventListener('mouseenter',()=>{ if(painting)paintCellEl(c); });
     c.addEventListener('contextmenu',e=>{ e.preventDefault(); decCellEl(c); });
   });
+  $('#matrix').querySelectorAll('.worker-head[data-w]').forEach(h=>h.addEventListener('click',()=>{
+    selectedWorkerId=h.dataset.w;renderMatrix();
+  }));
   focusCellEl();
   renderMatrixRadar();
   $('#matrix').querySelectorAll('.matrix-cat-toggle').forEach(b=>b.addEventListener('click',e=>{
