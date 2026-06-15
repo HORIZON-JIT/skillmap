@@ -949,9 +949,10 @@ function renderDash(autoReplay){
     '<div class="kpi warn"><div class="label">属人化リスク作業</div><div class="value">'+cur.risk+'<span class="unit">件</span></div><div class="foot">全 '+cur.taskCount+' 作業中</div></div>'+
     '<div class="kpi"><div class="label">手順書なしの作業</div><div class="value">'+tasks.filter(t=>t.active&&!t.hasDoc).length+'<span class="unit">件</span></div><div class="foot">整備の優先候補</div></div>'+
     '<div class="kpi"><div class="label">記録済みスナップショット</div><div class="value">'+snapshots.length+'<span class="unit">回</span></div><div class="foot">最新 '+(snapshots.at(-1)?.month??'—')+'</div></div>';
-  drawCharts();
+  if(autoReplay&&charts.chartWorker){charts.chartWorker.destroy();delete charts.chartWorker;}
+  drawCharts(!autoReplay);
   drawRadars();
-  if(autoReplay)setTimeout(()=>{if($('#view-dash').classList.contains('active'))replayWorkerTrend();},120);
+  if(autoReplay)setTimeout(()=>{if($('#view-dash').classList.contains('active'))replayWorkerTrend();},0);
 }
 
 /* 各大分類の到達度（％）を担当者ごとに算出。軸＝有効な大分類 */
@@ -1217,9 +1218,10 @@ function renderRisk(){
   }).join('');
 }
 
-function drawCharts(){
+function drawCharts(drawWorker){
+  if(drawWorker===undefined)drawWorker=true;
   const months=snapshots.map(s=>s.month);
-  drawWorkerTrendChart(months);
+  if(drawWorker)drawWorkerTrendChart(months);
   mkChart('chartFill','line',months,[{label:'充足率',data:snapshots.map(s=>s.fill),
     borderColor:'#8A6A37',backgroundColor:'rgba(138,106,55,.12)',fill:true,tension:.3,borderWidth:2.5,pointRadius:3}],
     {legend:false,yMax:100,ySuffix:'%'});
@@ -1919,7 +1921,7 @@ function replayWorkerTrend(){
   };
   charts.chartWorker=new Chart(document.getElementById('chartWorker'),{
     type:'line',
-    data:{datasets:rows.map((row,di)=>buildWorkerTrendDataset(row,makePoints(originals[di]||[],0),ctx=>ctx.dataIndex===ctx.dataset.data.length-1?6:2))},
+    data:{datasets:rows.map((row,di)=>buildWorkerTrendDataset(row,[],ctx=>ctx.dataIndex===ctx.dataset.data.length-1?6:2))},
     options:{responsive:true,maintainAspectRatio:false,
       animation:false,
       parsing:false,
