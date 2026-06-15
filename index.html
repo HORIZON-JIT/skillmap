@@ -1253,7 +1253,7 @@ const workerEndLabelPlugin={
       placed.push(y);
       ctx.fillStyle=x.ds.borderColor;
       ctx.textBaseline='middle';
-      ctx.fillText(x.ds.label+' '+x.ds._endValue,Math.min(pt.x+9,area.right-74),y);
+      ctx.fillText(x.ds.label+' '+Math.round(x.ds._endValue),Math.min(pt.x+9,area.right-74),y);
     });
     ctx.restore();
   }
@@ -1924,7 +1924,10 @@ function replayWorkerTrend(){
       layout:{padding:{right:96}},
       interaction:{mode:'nearest',intersect:false},
       plugins:{legend:{display:false},tooltip:{backgroundColor:'#111',padding:10,displayColors:true,
-        callbacks:{title:items=>{const x=items&&items[0]?items[0].parsed.x:0;return months[Math.max(0,Math.min(months.length-1,Math.round(x)))]||'';}}}},
+        callbacks:{
+          title:items=>{const x=items&&items[0]?items[0].parsed.x:0;return months[Math.max(0,Math.min(months.length-1,Math.round(x)))]||'';},
+          label:ctx=>ctx.dataset.label+'：'+Math.round(ctx.parsed.y)+'点'
+        }}},
       scales:{
         x:{type:'linear',min:0,max:months.length-1,grid:{display:false},
           ticks:{stepSize:1,font:{size:11},callback:v=>months[Math.round(v)]||''}},
@@ -1944,7 +1947,7 @@ function replayWorkerTrend(){
       const pts=makePoints(src,scaled);
       ds.data=pts;
       const visible=pts.map(v=>v.y).filter(v=>v!=null);
-      ds._endValue=visible.length?visible[visible.length-1]:null;
+      ds._endValue=visible.length?Math.round(visible[visible.length-1]):null;
     });
     chart.update('none');
     if(p<1){
