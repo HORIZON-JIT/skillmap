@@ -598,7 +598,6 @@ let painting=false;            // ドラッグ塗り中か
 let selectedCell=null;         // キーボード入力対象の {t,w}
 const charts={};
 let workerTrendReplayTimer=null;
-let workerTrendReplayCount=0;
 const $=s=>document.querySelector(s);
 const skey=(t,w)=>t+'|'+w;
 const getLv=(t,w)=>skills[skey(t,w)]??0;
@@ -1260,12 +1259,14 @@ const workerEndLabelPlugin={
   }
 };
 function drawWorkerTrendChart(months){
+  if(workerTrendReplayTimer){
+    cancelAnimationFrame(workerTrendReplayTimer);
+    workerTrendReplayTimer=null;
+  }
   const rows=workerTrendRows();
-  const limit=workerTrendReplayCount>0?Math.min(workerTrendReplayCount,months.length):months.length;
-  const labels=months.slice(0,limit);
   const datasets=rows.map((x,order)=>{
     const color=workerColor(x.i);
-    const data=x.data.slice(0,limit);
+    const data=x.data.slice();
     const valid=data.filter(v=>v!=null);
     const endValue=valid.length?valid[valid.length-1]:null;
     return {
@@ -1277,17 +1278,17 @@ function drawWorkerTrendChart(months){
       tension:.34,
       spanGaps:true,
       borderWidth:2.8,
-      pointRadius:ctx=>ctx.dataIndex===labels.length-1?6:3,
+      pointRadius:ctx=>ctx.dataIndex===months.length-1?6:3,
       pointHoverRadius:7,
       pointBorderWidth:2,
       pointBackgroundColor:'#fff',
       cubicInterpolationMode:'monotone'
     };
   });
-  mkChart('chartWorker','line',labels,datasets,{
+  mkChart('chartWorker','line',months,datasets,{
     legend:false,
     padRight:96,
-    animation:workerTrendReplayCount>0?260:650,
+    animation:650,
     plugins:[workerEndLabelPlugin]
   });
 }
@@ -1893,20 +1894,47 @@ $('#toggleDisabled').addEventListener('click',()=>{showDisabled=!showDisabled;
 $('#radarOverlay').addEventListener('change',drawRadars);
 $('#saveBtn').addEventListener('click',saveData);
 function replayWorkerTrend(){
-  if(workerTrendReplayTimer)clearInterval(workerTrendReplayTimer);
-  const total=snapshots.length;
-  if(total<=1){drawCharts();return;}
-  workerTrendReplayCount=1;
-  drawCharts();
-  workerTrendReplayTimer=setInterval(()=>{
-    workerTrendReplayCount++;
-    drawCharts();
-    if(workerTrendReplayCount>=total){
-      clearInterval(workerTrendReplayTimer);
+  if(workerTrendReplayTimer)cancelAnimationFrame(workerTrendReplayTimer);
+  const chart=charts.chartWorker;
+  const months=snapshots.map(s=>s.month);
+  if(!chart||months.length<=1){drawCharts();return;}
+  const rows=workerTrendRows();
+  const originals=rows.map(x=>x.data.map(v=>v==null?null:Number(v)));
+  const duration=Math.max(1800,Math.min(5200,months.length*520));
+  const start=performance.now();
+  const ease=t=>1-Math.pow(1-t,3);
+  const frame=now=>{
+    const p=Math.min(1,(now-start)/duration);
+    const scaled=ease(p)*(months.length-1);
+    const idx=Math.floor(scaled);
+    const frac=scaled-idx;
+    chart.data.datasets.forEach((ds,di)=>{
+      const src=originals[di]||[];
+      const arr=months.map((_,mi)=>{
+        if(mi<idx)return src[mi];
+        if(mi>idx+1)return null;
+        if(mi===idx){
+          const a=src[idx];
+          const b=src[idx+1];
+          if(a==null)return null;
+          if(b==null||idx>=months.length-1)return a;
+          return Math.round((a+(b-a)*frac)*10)/10;
+        }
+        return null;
+      });
+      ds.data=arr;
+      const visible=arr.filter(v=>v!=null);
+      ds._endValue=visible.length?visible[visible.length-1]:null;
+    });
+    chart.update('none');
+    if(p<1){
+      workerTrendReplayTimer=requestAnimationFrame(frame);
+    }else{
       workerTrendReplayTimer=null;
-      setTimeout(()=>{workerTrendReplayCount=0;drawCharts();},450);
+      drawWorkerTrendChart(months);
     }
-  },420);
+  };
+  workerTrendReplayTimer=requestAnimationFrame(frame);
 }
 $('#trendReplay')?.addEventListener('click',replayWorkerTrend);
 // レベル筆（ブラシ）の切り替え
