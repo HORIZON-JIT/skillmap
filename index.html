@@ -170,7 +170,7 @@
   .subtotal-label{text-align:right;padding-right:16px;color:var(--ink-dim);font-size:12px;position:sticky;left:0;background:#FAF7F1}
   .subtotal-col{color:var(--ink);font-size:13px}
 
-  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+  .kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
   @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
   .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
   .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--primary),var(--accent))}
@@ -339,7 +339,6 @@
 <div class="tabs">
   <button class="tab active" data-view="matrix">マトリクス</button>
   <button class="tab" data-view="dash">ダッシュボード</button>
-  <button class="tab" data-view="risk">属人化対策</button>
   <button class="tab" data-view="admin">管理</button>
 </div>
 
@@ -957,8 +956,7 @@ function renderDash(autoReplay){
   $('#kpiGrid').innerHTML=
     '<div class="kpi accent"><div class="label">課全体のスキル充足率</div><div class="value">'+cur.fill+'<span class="unit">%</span></div><div class="foot">満点 '+(cur.workerCount*cur.taskCount*3)+' 点中</div></div>'+
     '<div class="kpi warn"><div class="label">属人化リスク作業</div><div class="value">'+cur.risk+'<span class="unit">件</span></div><div class="foot">全 '+cur.taskCount+' 作業中</div></div>'+
-    '<div class="kpi"><div class="label">手順書なしの作業</div><div class="value">'+tasks.filter(t=>t.active&&!t.hasDoc).length+'<span class="unit">件</span></div><div class="foot">整備の優先候補</div></div>'+
-    '<div class="kpi"><div class="label">記録済みスナップショット</div><div class="value">'+snapshots.length+'<span class="unit">回</span></div><div class="foot">最新 '+(snapshots.at(-1)?.month??'—')+'</div></div>';
+    '<div class="kpi"><div class="label">手順書なしの作業</div><div class="value">'+tasks.filter(t=>t.active&&!t.hasDoc).length+'<span class="unit">件</span></div><div class="foot">整備の優先候補</div></div>';
   if(autoReplay&&charts.chartWorker){charts.chartWorker.destroy();delete charts.chartWorker;}
   drawCharts(!autoReplay);
   drawRadars();
