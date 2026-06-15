@@ -450,6 +450,7 @@
     <button class="mini-btn" id="importBtn">JSONインポート（復元）</button>
     <input type="file" id="importFile" accept="application/json,.json" style="display:none">
     <button class="mini-btn" id="importLegacyBtn">古いスキルマップを取り込む（追加）</button>
+    <button class="mini-btn" id="importHistoryBtn">過去のスキルポイント推移を取り込む</button>
   </div>
   <div class="admin-grid">
     <div class="admin-col">
@@ -1967,7 +1968,7 @@ async function loadFromFirestore(){
     const scs=scS.docs.map(d=>Object.assign({id:d.id},d.data()));
     const ts=tS.docs.map(d=>Object.assign({id:d.id},d.data()));
     const sk={}; kS.docs.forEach(d=>{sk[d.id]=Number((d.data()||{}).level||0);});
-    const snaps=sS.docs.map(d=>{const x=d.data()||{};return {month:d.id,fill:Number(x.fill||0),risk:Number(x.risk||0),totals:x.totals||{}};})
+    const snaps=sS.docs.map(d=>{const x=d.data()||{};return {month:d.id,fill:x.fill==null?null:Number(x.fill),risk:x.risk==null?null:Number(x.risk),totals:x.totals||{}};})
       .sort((a,b)=>a.month.localeCompare(b.month));
     if(!ws.length&&!ts.length){
       $('#statusDot').classList.add('online');
@@ -1993,7 +1994,7 @@ function workerDoc(w,i){return {name:w.name||'',code:w.code||'',active:w.active!
 function catDoc(c){return {code:c.code||'',name:c.name||'',color:c.color||'',order:Number(c.order||0),active:c.active!==false};}
 function subcatDoc(s){return {name:s.name||'',catId:s.catId||'',order:Number(s.order||0),active:s.active!==false};}
 function taskDoc(t){return {code:t.code||'',name:t.name||'',catId:t.catId||'',subCatId:t.subCatId||'',order:Number(t.order||0),hasDoc:!!t.hasDoc,link:t.link||'',active:t.active!==false};}
-function snapDoc(s){return {fill:Number(s.fill||0),risk:Number(s.risk||0),totals:s.totals||{}};}
+function snapDoc(s){return {fill:s.fill==null?null:Number(s.fill),risk:s.risk==null?null:Number(s.risk),totals:s.totals||{}};}
 // 差分（変更されたコレクション／個別セル／削除）だけを書き込む
 async function saveToFirestore(){
   const ops=[];
@@ -2146,6 +2147,36 @@ async function importLegacy(){
   await saveData();
 }
 $('#importLegacyBtn')&&$('#importLegacyBtn').addEventListener('click',importLegacy);
+
+// 過去の作業者別スキル点推移（skill-history.json）を snapshots に取り込む
+async function importSkillHistory(){
+  if(!USE_FIREBASE){toast('取り込みはFirebase接続時のみ可能です');return;}
+  let d;
+  try{ d=await (await fetch('skill-history.json',{cache:'no-store'})).json(); }
+  catch(e){toast('推移データを読み込めませんでした');console.error(e);return;}
+  const months=d.months||[], totals=d.totals||{};
+  const norm=n=>String(n||'').replace(/\s+/g,'');
+  const idByName={}; workers.forEach(w=>{ idByName[norm(w.name)]=w.id; });
+  const unmatched=Object.keys(totals).filter(nm=>!idByName[norm(nm)]);
+  if(!confirm('過去のスキルポイント推移を取り込みます。\n対象月：'+(months[0]||'')+'〜'+(months[months.length-1]||'')+'（'+months.length+'か月）\n作業者：'+Object.keys(totals).length+'名'+(unmatched.length?'（未一致 '+unmatched.length+'名：'+unmatched.join('・')+' はスキップ）':'')+'\n\n各月の作業者別合計点をスナップショットとして登録します（同月は合計点のみ上書き）。\n取り込み前に現状を自動バックアップします。よろしいですか？'))return;
+  downloadBackup('skillmap-before-history-');
+  months.forEach((m,i)=>{
+    let snap=snapshots.find(s=>s.month===m);
+    if(!snap){ snap={month:m,totals:{},fill:null,risk:null}; snapshots.push(snap); }
+    if(!snap.totals)snap.totals={};
+    Object.keys(totals).forEach(nm=>{
+      const wid=idByName[norm(nm)]; if(!wid)return;
+      const arr=totals[nm]||[];
+      snap.totals[wid]=Number(arr[i]||0);
+    });
+  });
+  snapshots.sort((a,b)=>a.month.localeCompare(b.month));
+  markDirty('snapshots');
+  renderAll();
+  toast('推移を取り込みました。保存中…');
+  await saveData();
+}
+$('#importHistoryBtn')&&$('#importHistoryBtn').addEventListener('click',importSkillHistory);
 
 /* ========================= 起動・ログイン制御 ========================= */
 function showLoginGate(msg,isError){
