@@ -237,9 +237,23 @@
   .heat-row-sev{font-size:11px;font-weight:800;padding:0 12px;white-space:nowrap}
   .chart-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow)}
   .chart-card.wide{grid-column:1 / -1}
+  .chart-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
   .chart-card h3{font-size:14px;margin-bottom:4px;font-weight:800}
   .chart-card .desc{font-size:11.5px;color:var(--ink-dim);margin-bottom:14px}
   .chart-box{position:relative;height:280px}
+  .chart-box.worker-trend{height:380px}
+  .chart-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .seg-btn{border:1px solid var(--line);background:var(--surface);color:var(--ink-dim);border-radius:8px;padding:8px 11px;font-size:12px;font-weight:800;cursor:pointer}
+  .seg-btn.active{background:var(--ink);border-color:var(--ink);color:#fff}
+  .trend-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:2px 0 14px}
+  .trend-card{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:10px 12px;display:flex;align-items:center;gap:10px;min-width:0}
+  .trend-rank{font-size:13px;font-weight:900;color:var(--ink-dim);min-width:24px}
+  .trend-main{min-width:0;flex:1}
+  .trend-name{font-size:13px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trend-score{font-size:11.5px;color:var(--ink-dim);margin-top:2px}
+  .trend-delta{font-size:12px;font-weight:900;color:var(--lv3);white-space:nowrap}
+  @media(max-width:900px){.trend-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-box.worker-trend{height:340px}}
+  @media(max-width:560px){.trend-summary{grid-template-columns:1fr}.chart-card-head{display:block}.chart-actions{margin-top:10px}}
   .snap-bar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
   .snap-bar .note{font-size:12px;color:var(--ink-dim)}
 
@@ -370,9 +384,19 @@
   <div class="kpi-grid" id="kpiGrid"></div>
   <div class="chart-grid">
     <div class="chart-card wide">
-      <h3>作業者ごとの総合スキル点の推移</h3>
-      <div class="desc">各メンバーの合計点が月ごとにどう伸びているか</div>
-      <div class="chart-box"><canvas id="chartWorker"></canvas></div>
+      <div class="chart-card-head">
+        <div>
+          <h3>作業者ごとの総合スキル点の推移</h3>
+          <div class="desc">各メンバーの合計点が月ごとにどう伸びているか</div>
+        </div>
+        <div class="chart-actions">
+          <button class="seg-btn active" id="trendTop">上位</button>
+          <button class="seg-btn" id="trendAll">全員</button>
+          <button class="seg-btn" id="trendReplay">再生</button>
+        </div>
+      </div>
+      <div class="trend-summary" id="trendSummary"></div>
+      <div class="chart-box worker-trend"><canvas id="chartWorker"></canvas></div>
     </div>
     <div class="chart-card">
       <h3>課全体のスキル充足率の推移</h3>
@@ -583,6 +607,8 @@ let brushLevel=null;           // null=加算モード、0〜3=その値を直�
 let painting=false;            // ドラッグ塗り中か
 let selectedCell=null;         // キーボード入力対象の {t,w}
 const charts={};
+let workerTrendMode='top';
+let workerTrendReplay=0;
 const $=s=>document.querySelector(s);
 const skey=(t,w)=>t+'|'+w;
 const getLv=(t,w)=>skills[skey(t,w)]??0;
@@ -1202,17 +1228,89 @@ function renderRisk(){
 
 function drawCharts(){
   const months=snapshots.map(s=>s.month);
-  const wsets=workers.filter(w=>w.active).map((w,i)=>({
-    label:w.name, data:snapshots.map(s=>s.totals[w.id]??null),
-    borderColor:workerColor(i), backgroundColor:workerColor(i),
-    tension:.3, spanGaps:true, borderWidth:2.5, pointRadius:3
-  }));
-  mkChart('chartWorker','line',months,wsets,{legend:true});
+  drawWorkerTrendChart(months);
   mkChart('chartFill','line',months,[{label:'充足率',data:snapshots.map(s=>s.fill),
     borderColor:'#8A6A37',backgroundColor:'rgba(138,106,55,.12)',fill:true,tension:.3,borderWidth:2.5,pointRadius:3}],
     {legend:false,yMax:100,ySuffix:'%'});
   mkChart('chartRisk','bar',months,[{label:'属人化作業数',data:snapshots.map(s=>s.risk),
     backgroundColor:'#ea6a3a',borderRadius:6,maxBarThickness:46}],{legend:false});
+}
+function workerTrendRows(){
+  return workers.filter(w=>w.active).map((w,i)=>{
+    const data=snapshots.map(s=>s.totals&&s.totals[w.id]!=null?Number(s.totals[w.id]):null);
+    const valid=data.filter(v=>v!=null);
+    const latest=valid.length?valid[valid.length-1]:0;
+    const first=valid.length?valid[0]:0;
+    return {w,i,data,latest,delta:latest-first};
+  }).sort((a,b)=>b.latest-a.latest||b.delta-a.delta);
+}
+function renderTrendSummary(rows){
+  const el=$('#trendSummary'); if(!el)return;
+  el.innerHTML=rows.slice(0,4).map((x,idx)=>{
+    const delta=x.delta>0?'+'+x.delta:x.delta;
+    return '<div class="trend-card">'+
+      '<div class="trend-rank">'+(idx+1)+'</div>'+
+      workerAvatarHtml(x.w,x.i,'worker-mini-avatar')+
+      '<div class="trend-main"><div class="trend-name">'+esc(x.w.name)+'</div>'+
+      '<div class="trend-score">最新 '+x.latest+' 点</div></div>'+
+      '<div class="trend-delta">'+delta+'</div>'+
+    '</div>';
+  }).join('');
+}
+const workerEndLabelPlugin={
+  id:'workerEndLabel',
+  afterDatasetsDraw(chart,args,opts){
+    const ctx=chart.ctx;
+    const area=chart.chartArea;
+    const visible=chart.data.datasets
+      .map((ds,i)=>({ds,i,meta:chart.getDatasetMeta(i)}))
+      .filter(x=>!x.meta.hidden&&x.ds._endValue!=null&&x.meta.data.length)
+      .sort((a,b)=>a.meta.data.at(-1).y-b.meta.data.at(-1).y);
+    const placed=[];
+    ctx.save();
+    ctx.font='700 11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
+    visible.forEach(x=>{
+      const pt=x.meta.data.at(-1); if(!pt)return;
+      let y=pt.y;
+      placed.forEach(py=>{ if(Math.abs(y-py)<14)y=py+14; });
+      y=Math.max(area.top+8,Math.min(area.bottom-8,y));
+      placed.push(y);
+      ctx.fillStyle=x.ds.borderColor;
+      ctx.textBaseline='middle';
+      ctx.fillText(x.ds.label+' '+x.ds._endValue,Math.min(pt.x+9,area.right-74),y);
+    });
+    ctx.restore();
+  }
+};
+function drawWorkerTrendChart(months){
+  const rows=workerTrendRows();
+  renderTrendSummary(rows);
+  const topIds=new Set(rows.slice(0,5).map(x=>x.w.id));
+  const visibleRows=workerTrendMode==='top'?rows.filter(x=>topIds.has(x.w.id)):rows;
+  const datasets=visibleRows.map((x,order)=>{
+    const color=workerColor(x.i);
+    return {
+      label:x.w.name,
+      data:x.data,
+      _endValue:x.latest,
+      borderColor:color,
+      backgroundColor:color,
+      tension:.34,
+      spanGaps:true,
+      borderWidth:order<4?4:2.5,
+      pointRadius:ctx=>ctx.dataIndex===months.length-1?6:3,
+      pointHoverRadius:7,
+      pointBorderWidth:2,
+      pointBackgroundColor:'#fff',
+      cubicInterpolationMode:'monotone'
+    };
+  });
+  mkChart('chartWorker','line',months,datasets,{
+    legend:false,
+    padRight:96,
+    animation:900+workerTrendReplay,
+    plugins:[workerEndLabelPlugin]
+  });
 }
 function mkChart(id,type,labels,datasets,opt){
   opt=opt||{};
@@ -1220,11 +1318,15 @@ function mkChart(id,type,labels,datasets,opt){
   charts[id]=new Chart(document.getElementById(id),{
     type:type,data:{labels:labels,datasets:datasets},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:opt.legend,position:'bottom',labels:{boxWidth:12,font:{size:11}}}},
+      animation:{duration:opt.animation||650,easing:'easeOutQuart'},
+      layout:{padding:{right:opt.padRight||0}},
+      interaction:{mode:'nearest',intersect:false},
+      plugins:{legend:{display:opt.legend,position:'bottom',labels:{boxWidth:12,font:{size:11}}},tooltip:{backgroundColor:'#111',padding:10,displayColors:true}},
       scales:{
         y:{beginAtZero:true,max:opt.yMax,ticks:{callback:v=>v+(opt.ySuffix||''),font:{size:11}},grid:{color:'#eef2f6'}},
         x:{grid:{display:false},ticks:{font:{size:11}}}
-      }}
+      }},
+    plugins:opt.plugins||[]
   });
 }
 
@@ -1811,6 +1913,15 @@ $('#toggleDisabled').addEventListener('click',()=>{showDisabled=!showDisabled;
   $('#toggleDisabled').textContent=showDisabled?'無効を隠す':'無効も表示';renderMatrix();});
 $('#radarOverlay').addEventListener('change',drawRadars);
 $('#saveBtn').addEventListener('click',saveData);
+function setWorkerTrendMode(mode){
+  workerTrendMode=mode;
+  $('#trendTop')?.classList.toggle('active',mode==='top');
+  $('#trendAll')?.classList.toggle('active',mode==='all');
+  drawCharts();
+}
+$('#trendTop')?.addEventListener('click',()=>setWorkerTrendMode('top'));
+$('#trendAll')?.addEventListener('click',()=>setWorkerTrendMode('all'));
+$('#trendReplay')?.addEventListener('click',()=>{workerTrendReplay=600;drawCharts();setTimeout(()=>{workerTrendReplay=0;},0);});
 // レベル筆（ブラシ）の切り替え
 document.querySelectorAll('.brush-btn').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.brush-btn').forEach(x=>x.classList.remove('active'));
