@@ -1265,25 +1265,7 @@ function drawWorkerTrendChart(months){
   }
   const rows=workerTrendRows();
   const datasets=rows.map((x,order)=>{
-    const color=workerColor(x.i);
-    const data=x.data.slice();
-    const valid=data.filter(v=>v!=null);
-    const endValue=valid.length?valid[valid.length-1]:null;
-    return {
-      label:x.w.name,
-      data:data,
-      _endValue:endValue,
-      borderColor:color,
-      backgroundColor:color,
-      tension:.34,
-      spanGaps:true,
-      borderWidth:2.8,
-      pointRadius:ctx=>ctx.dataIndex===months.length-1?6:3,
-      pointHoverRadius:7,
-      pointBorderWidth:2,
-      pointBackgroundColor:'#fff',
-      cubicInterpolationMode:'monotone'
-    };
+    return buildWorkerTrendDataset(x,x.data.slice(),ctx=>ctx.dataIndex===months.length-1?6:3);
   });
   mkChart('chartWorker','line',months,datasets,{
     legend:false,
@@ -1291,6 +1273,25 @@ function drawWorkerTrendChart(months){
     animation:650,
     plugins:[workerEndLabelPlugin]
   });
+}
+function buildWorkerTrendDataset(row,data,pointRadius){
+  const color=workerColor(row.i);
+  const valid=data.map(v=>v&&typeof v==='object'?v.y:v).filter(v=>v!=null);
+  return {
+    label:row.w.name,
+    data:data,
+    _endValue:valid.length?valid[valid.length-1]:null,
+    borderColor:color,
+    backgroundColor:color,
+    tension:.34,
+    spanGaps:true,
+    borderWidth:2.8,
+    pointRadius:pointRadius,
+    pointHoverRadius:7,
+    pointBorderWidth:2,
+    pointBackgroundColor:'#fff',
+    cubicInterpolationMode:'monotone'
+  };
 }
 function mkChart(id,type,labels,datasets,opt){
   opt=opt||{};
@@ -1895,35 +1896,54 @@ $('#radarOverlay').addEventListener('change',drawRadars);
 $('#saveBtn').addEventListener('click',saveData);
 function replayWorkerTrend(){
   if(workerTrendReplayTimer)cancelAnimationFrame(workerTrendReplayTimer);
-  const chart=charts.chartWorker;
   const months=snapshots.map(s=>s.month);
-  if(!chart||months.length<=1){drawCharts();return;}
+  if(months.length<=1){drawCharts();return;}
   const rows=workerTrendRows();
   const originals=rows.map(x=>x.data.map(v=>v==null?null:Number(v)));
-  const duration=Math.max(1800,Math.min(5200,months.length*520));
+  if(charts.chartWorker)charts.chartWorker.destroy();
+  const makePoints=(src,scaled)=>{
+    const idx=Math.floor(scaled);
+    const frac=scaled-idx;
+    const pts=[];
+    for(let i=0;i<=idx&&i<src.length;i++){
+      if(src[i]!=null)pts.push({x:i,y:src[i]});
+    }
+    if(idx<src.length-1){
+      const a=src[idx],b=src[idx+1];
+      if(a!=null&&b!=null&&frac>0)pts.push({x:idx+frac,y:a+(b-a)*frac});
+    }
+    return pts;
+  };
+  charts.chartWorker=new Chart(document.getElementById('chartWorker'),{
+    type:'line',
+    data:{datasets:rows.map((row,di)=>buildWorkerTrendDataset(row,makePoints(originals[di]||[],0),ctx=>ctx.dataIndex===ctx.dataset.data.length-1?6:2))},
+    options:{responsive:true,maintainAspectRatio:false,
+      animation:false,
+      parsing:false,
+      normalized:true,
+      layout:{padding:{right:96}},
+      interaction:{mode:'nearest',intersect:false},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#111',padding:10,displayColors:true,
+        callbacks:{title:items=>{const x=items&&items[0]?items[0].parsed.x:0;return months[Math.max(0,Math.min(months.length-1,Math.round(x)))]||'';}}}},
+      scales:{
+        x:{type:'linear',min:0,max:months.length-1,grid:{display:false},
+          ticks:{stepSize:1,font:{size:11},callback:v=>months[Math.round(v)]||''}},
+        y:{beginAtZero:true,ticks:{font:{size:11}},grid:{color:'#eef2f6'}}
+      }},
+    plugins:[workerEndLabelPlugin]
+  });
+  const chart=charts.chartWorker;
+  const duration=Math.max(2200,Math.min(6200,months.length*650));
   const start=performance.now();
-  const ease=t=>1-Math.pow(1-t,3);
+  const ease=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
   const frame=now=>{
     const p=Math.min(1,(now-start)/duration);
     const scaled=ease(p)*(months.length-1);
-    const idx=Math.floor(scaled);
-    const frac=scaled-idx;
     chart.data.datasets.forEach((ds,di)=>{
       const src=originals[di]||[];
-      const arr=months.map((_,mi)=>{
-        if(mi<idx)return src[mi];
-        if(mi>idx+1)return null;
-        if(mi===idx){
-          const a=src[idx];
-          const b=src[idx+1];
-          if(a==null)return null;
-          if(b==null||idx>=months.length-1)return a;
-          return Math.round((a+(b-a)*frac)*10)/10;
-        }
-        return null;
-      });
-      ds.data=arr;
-      const visible=arr.filter(v=>v!=null);
+      const pts=makePoints(src,scaled);
+      ds.data=pts;
+      const visible=pts.map(v=>v.y).filter(v=>v!=null);
       ds._endValue=visible.length?visible[visible.length-1]:null;
     });
     chart.update('none');
