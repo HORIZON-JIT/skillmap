@@ -383,6 +383,9 @@
           <div class="desc">各メンバーの合計点が月ごとにどう伸びているか</div>
         </div>
         <div class="chart-actions">
+          <button class="seg-btn active" data-range="12">12か月</button>
+          <button class="seg-btn" data-range="24">24か月</button>
+          <button class="seg-btn" data-range="all">全期間</button>
           <button class="seg-btn" id="trendReplay">再生</button>
         </div>
       </div>
@@ -598,12 +601,19 @@ let painting=false;            // ドラッグ塗り中か
 let selectedCell=null;         // キーボード入力対象の {t,w}
 const charts={};
 let workerTrendReplayTimer=null;
+let dashboardRange='12';
 const $=s=>document.querySelector(s);
 const skey=(t,w)=>t+'|'+w;
 const getLv=(t,w)=>skills[skey(t,w)]??0;
 const esc=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);};
 const catName=id=>{const c=categories.find(x=>x.id===id);return c?c.name:'未分類';};
+function visibleSnapshots(){
+  const sorted=snapshots.slice().sort((a,b)=>String(a.month).localeCompare(String(b.month)));
+  if(dashboardRange==='all')return sorted;
+  const n=Number(dashboardRange);
+  return sorted.slice(Math.max(0,sorted.length-n));
+}
 const subName=id=>{const s=subcats.find(x=>x.id===id);return s?s.name:'';};
 // 大分類の有効な中分類を並び順で返す
 function orderedSubcats(catId){return subcats.filter(s=>s.active!==false&&s.catId===catId).slice().sort((a,b)=>(a.order||0)-(b.order||0));}
@@ -1220,17 +1230,19 @@ function renderRisk(){
 
 function drawCharts(drawWorker){
   if(drawWorker===undefined)drawWorker=true;
-  const months=snapshots.map(s=>s.month);
+  const visible=visibleSnapshots();
+  const months=visible.map(s=>s.month);
   if(drawWorker)drawWorkerTrendChart(months);
-  mkChart('chartFill','line',months,[{label:'充足率',data:snapshots.map(s=>s.fill),
+  mkChart('chartFill','line',months,[{label:'充足率',data:visible.map(s=>s.fill),
     borderColor:'#8A6A37',backgroundColor:'rgba(138,106,55,.12)',fill:true,tension:.3,borderWidth:2.5,pointRadius:3}],
     {legend:false,yMax:100,ySuffix:'%'});
-  mkChart('chartRisk','bar',months,[{label:'属人化作業数',data:snapshots.map(s=>s.risk),
+  mkChart('chartRisk','bar',months,[{label:'属人化作業数',data:visible.map(s=>s.risk),
     backgroundColor:'#ea6a3a',borderRadius:6,maxBarThickness:46}],{legend:false});
 }
 function workerTrendRows(){
+  const visible=visibleSnapshots();
   return workers.filter(w=>w.active).map((w,i)=>{
-    const data=snapshots.map(s=>s.totals&&s.totals[w.id]!=null?Number(s.totals[w.id]):null);
+    const data=visible.map(s=>s.totals&&s.totals[w.id]!=null?Number(s.totals[w.id]):null);
     const valid=data.filter(v=>v!=null);
     const latest=valid.length?valid[valid.length-1]:0;
     const first=valid.length?valid[0]:0;
@@ -1899,9 +1911,15 @@ $('#toggleDisabled').addEventListener('click',()=>{showDisabled=!showDisabled;
   $('#toggleDisabled').textContent=showDisabled?'無効を隠す':'無効も表示';renderMatrix();});
 $('#radarOverlay').addEventListener('change',drawRadars);
 $('#saveBtn').addEventListener('click',saveData);
+document.querySelectorAll('[data-range]').forEach(b=>b.addEventListener('click',()=>{
+  dashboardRange=b.dataset.range;
+  document.querySelectorAll('[data-range]').forEach(x=>x.classList.toggle('active',x===b));
+  if(workerTrendReplayTimer){cancelAnimationFrame(workerTrendReplayTimer);workerTrendReplayTimer=null;}
+  drawCharts(true);
+}));
 function replayWorkerTrend(){
   if(workerTrendReplayTimer)cancelAnimationFrame(workerTrendReplayTimer);
-  const months=snapshots.map(s=>s.month);
+  const months=visibleSnapshots().map(s=>s.month);
   if(months.length<=1){drawCharts();return;}
   const rows=workerTrendRows();
   const originals=rows.map(x=>x.data.map(v=>v==null?null:Number(v)));
