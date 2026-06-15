@@ -966,7 +966,19 @@ function renderDash(autoReplay){
 }
 
 /* 各大分類の到達度（％）を担当者ごとに算出。軸＝有効な大分類 */
-function radarAxes(){ return orderedCats(); } // 表示順の大分類を軸に
+function radarAxes(){
+  const axes=orderedCats();
+  const isPlanOrder=c=>/計画|受注/.test(c.name||'');
+  const isArrange=c=>/手配/.test(c.name||'');
+  const planIdx=axes.findIndex(isPlanOrder);
+  const arrangeIdx=axes.findIndex(isArrange);
+  if(planIdx>=0&&arrangeIdx>=0&&planIdx<arrangeIdx){
+    const plan=axes.splice(planIdx,1)[0];
+    const newArrangeIdx=axes.findIndex(isArrange);
+    axes.splice(newArrangeIdx+1,0,plan);
+  }
+  return axes;
+}
 function workerCatPct(wid){
   // 大分類ごと：その分類の有効作業の合計点 ÷ (作業数×3)
   return radarAxes().map(c=>{
