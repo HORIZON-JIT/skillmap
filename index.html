@@ -245,15 +245,8 @@
   .chart-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .seg-btn{border:1px solid var(--line);background:var(--surface);color:var(--ink-dim);border-radius:8px;padding:8px 11px;font-size:12px;font-weight:800;cursor:pointer}
   .seg-btn.active{background:var(--ink);border-color:var(--ink);color:#fff}
-  .trend-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:2px 0 14px}
-  .trend-card{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:10px 12px;display:flex;align-items:center;gap:10px;min-width:0}
-  .trend-rank{font-size:13px;font-weight:900;color:var(--ink-dim);min-width:24px}
-  .trend-main{min-width:0;flex:1}
-  .trend-name{font-size:13px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .trend-score{font-size:11.5px;color:var(--ink-dim);margin-top:2px}
-  .trend-delta{font-size:12px;font-weight:900;color:var(--lv3);white-space:nowrap}
-  @media(max-width:900px){.trend-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-box.worker-trend{height:340px}}
-  @media(max-width:560px){.trend-summary{grid-template-columns:1fr}.chart-card-head{display:block}.chart-actions{margin-top:10px}}
+  @media(max-width:900px){.chart-box.worker-trend{height:340px}}
+  @media(max-width:560px){.chart-card-head{display:block}.chart-actions{margin-top:10px}}
   .snap-bar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
   .snap-bar .note{font-size:12px;color:var(--ink-dim)}
 
@@ -390,12 +383,9 @@
           <div class="desc">各メンバーの合計点が月ごとにどう伸びているか</div>
         </div>
         <div class="chart-actions">
-          <button class="seg-btn active" id="trendTop">上位</button>
-          <button class="seg-btn" id="trendAll">全員</button>
           <button class="seg-btn" id="trendReplay">再生</button>
         </div>
       </div>
-      <div class="trend-summary" id="trendSummary"></div>
       <div class="chart-box worker-trend"><canvas id="chartWorker"></canvas></div>
     </div>
     <div class="chart-card">
@@ -607,8 +597,8 @@ let brushLevel=null;           // null=加算モード、0〜3=その値を直�
 let painting=false;            // ドラッグ塗り中か
 let selectedCell=null;         // キーボード入力対象の {t,w}
 const charts={};
-let workerTrendMode='top';
-let workerTrendReplay=0;
+let workerTrendReplayTimer=null;
+let workerTrendReplayCount=0;
 const $=s=>document.querySelector(s);
 const skey=(t,w)=>t+'|'+w;
 const getLv=(t,w)=>skills[skey(t,w)]??0;
@@ -1242,20 +1232,7 @@ function workerTrendRows(){
     const latest=valid.length?valid[valid.length-1]:0;
     const first=valid.length?valid[0]:0;
     return {w,i,data,latest,delta:latest-first};
-  }).sort((a,b)=>b.latest-a.latest||b.delta-a.delta);
-}
-function renderTrendSummary(rows){
-  const el=$('#trendSummary'); if(!el)return;
-  el.innerHTML=rows.slice(0,4).map((x,idx)=>{
-    const delta=x.delta>0?'+'+x.delta:x.delta;
-    return '<div class="trend-card">'+
-      '<div class="trend-rank">'+(idx+1)+'</div>'+
-      workerAvatarHtml(x.w,x.i,'worker-mini-avatar')+
-      '<div class="trend-main"><div class="trend-name">'+esc(x.w.name)+'</div>'+
-      '<div class="trend-score">最新 '+x.latest+' 点</div></div>'+
-      '<div class="trend-delta">'+delta+'</div>'+
-    '</div>';
-  }).join('');
+  });
 }
 const workerEndLabelPlugin={
   id:'workerEndLabel',
@@ -1284,31 +1261,33 @@ const workerEndLabelPlugin={
 };
 function drawWorkerTrendChart(months){
   const rows=workerTrendRows();
-  renderTrendSummary(rows);
-  const topIds=new Set(rows.slice(0,5).map(x=>x.w.id));
-  const visibleRows=workerTrendMode==='top'?rows.filter(x=>topIds.has(x.w.id)):rows;
-  const datasets=visibleRows.map((x,order)=>{
+  const limit=workerTrendReplayCount>0?Math.min(workerTrendReplayCount,months.length):months.length;
+  const labels=months.slice(0,limit);
+  const datasets=rows.map((x,order)=>{
     const color=workerColor(x.i);
+    const data=x.data.slice(0,limit);
+    const valid=data.filter(v=>v!=null);
+    const endValue=valid.length?valid[valid.length-1]:null;
     return {
       label:x.w.name,
-      data:x.data,
-      _endValue:x.latest,
+      data:data,
+      _endValue:endValue,
       borderColor:color,
       backgroundColor:color,
       tension:.34,
       spanGaps:true,
-      borderWidth:order<4?4:2.5,
-      pointRadius:ctx=>ctx.dataIndex===months.length-1?6:3,
+      borderWidth:2.8,
+      pointRadius:ctx=>ctx.dataIndex===labels.length-1?6:3,
       pointHoverRadius:7,
       pointBorderWidth:2,
       pointBackgroundColor:'#fff',
       cubicInterpolationMode:'monotone'
     };
   });
-  mkChart('chartWorker','line',months,datasets,{
+  mkChart('chartWorker','line',labels,datasets,{
     legend:false,
     padRight:96,
-    animation:900+workerTrendReplay,
+    animation:workerTrendReplayCount>0?260:650,
     plugins:[workerEndLabelPlugin]
   });
 }
@@ -1913,15 +1892,23 @@ $('#toggleDisabled').addEventListener('click',()=>{showDisabled=!showDisabled;
   $('#toggleDisabled').textContent=showDisabled?'無効を隠す':'無効も表示';renderMatrix();});
 $('#radarOverlay').addEventListener('change',drawRadars);
 $('#saveBtn').addEventListener('click',saveData);
-function setWorkerTrendMode(mode){
-  workerTrendMode=mode;
-  $('#trendTop')?.classList.toggle('active',mode==='top');
-  $('#trendAll')?.classList.toggle('active',mode==='all');
+function replayWorkerTrend(){
+  if(workerTrendReplayTimer)clearInterval(workerTrendReplayTimer);
+  const total=snapshots.length;
+  if(total<=1){drawCharts();return;}
+  workerTrendReplayCount=1;
   drawCharts();
+  workerTrendReplayTimer=setInterval(()=>{
+    workerTrendReplayCount++;
+    drawCharts();
+    if(workerTrendReplayCount>=total){
+      clearInterval(workerTrendReplayTimer);
+      workerTrendReplayTimer=null;
+      setTimeout(()=>{workerTrendReplayCount=0;drawCharts();},450);
+    }
+  },420);
 }
-$('#trendTop')?.addEventListener('click',()=>setWorkerTrendMode('top'));
-$('#trendAll')?.addEventListener('click',()=>setWorkerTrendMode('all'));
-$('#trendReplay')?.addEventListener('click',()=>{workerTrendReplay=600;drawCharts();setTimeout(()=>{workerTrendReplay=0;},0);});
+$('#trendReplay')?.addEventListener('click',replayWorkerTrend);
 // レベル筆（ブラシ）の切り替え
 document.querySelectorAll('.brush-btn').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.brush-btn').forEach(x=>x.classList.remove('active'));
