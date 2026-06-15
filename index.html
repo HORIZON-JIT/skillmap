@@ -68,7 +68,10 @@
   button.primary:hover{background:var(--primary-dk);border-color:var(--primary-dk);color:#fff;filter:none}
   button.danger{color:var(--lv1);border-color:#f3c9c7}
   button.danger:hover{background:var(--lv1);color:#fff;border-color:var(--lv1)}
-  .mini-btn{padding:5px 10px;font-size:12px;border-radius:7px}
+  .mini-btn{padding:5px 10px;font-size:12px;border-radius:7px;white-space:nowrap;flex:0 0 auto}
+  /* 行内のボタン群は縮めず、ラベルを折り返さずに同サイズで揃える */
+  .item-row > div:last-child{flex:0 0 auto}
+  .item-row > div:first-child{min-width:0}
 
   .tabs{display:flex;gap:4px;padding:0 18px;background:rgba(255,255,255,.86);border-bottom:1px solid var(--line);
     position:sticky;top:57px;z-index:19;backdrop-filter:blur(12px);box-shadow:0 1px 0 rgba(17,17,17,.03)}
