@@ -56,7 +56,8 @@
 |---|---|---|
 | `workers` | 作業者ID（W001…） | name, code, active, ord, avatarDataUrl |
 | `categories` | 大分類ID（C001…） | code, name, color, order, active |
-| `tasks` | 作業ID（T001…） | code, name, catId, order, hasDoc, link, active |
+| `subcategories` | 中分類ID（S001…） | name, catId, order, active |
+| `tasks` | 作業ID（T001…）＝小分類 | code, name, catId, subCatId, order, hasDoc, link, active |
 | `skills` | `タスクID\|作業者ID`（例 `T001\|W001`） | taskId, workerId, level |
 | `snapshots` | 月（`2026-06`） | fill, risk, totals |
 
