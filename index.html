@@ -941,7 +941,8 @@ function renderMatrixRadar(){
   }],false);
 }
 
-function renderDash(){
+function renderDash(autoReplay){
+  if(autoReplay===undefined)autoReplay=true;
   const cur=calcCurrent();
   $('#kpiGrid').innerHTML=
     '<div class="kpi accent"><div class="label">課全体のスキル充足率</div><div class="value">'+cur.fill+'<span class="unit">%</span></div><div class="foot">満点 '+(cur.workerCount*cur.taskCount*3)+' 点中</div></div>'+
@@ -950,6 +951,7 @@ function renderDash(){
     '<div class="kpi"><div class="label">記録済みスナップショット</div><div class="value">'+snapshots.length+'<span class="unit">回</span></div><div class="foot">最新 '+(snapshots.at(-1)?.month??'—')+'</div></div>';
   drawCharts();
   drawRadars();
+  if(autoReplay)setTimeout(()=>{if($('#view-dash').classList.contains('active'))replayWorkerTrend();},120);
 }
 
 /* 各大分類の到達度（％）を担当者ごとに算出。軸＝有効な大分類 */
@@ -1270,6 +1272,7 @@ function drawWorkerTrendChart(months){
   mkChart('chartWorker','line',months,datasets,{
     legend:false,
     padRight:96,
+    xOffset:true,
     animation:650,
     plugins:[workerEndLabelPlugin]
   });
@@ -1305,7 +1308,7 @@ function mkChart(id,type,labels,datasets,opt){
       plugins:{legend:{display:opt.legend,position:'bottom',labels:{boxWidth:12,font:{size:11}}},tooltip:{backgroundColor:'#111',padding:10,displayColors:true}},
       scales:{
         y:{beginAtZero:true,max:opt.yMax,ticks:{callback:v=>v+(opt.ySuffix||''),font:{size:11}},grid:{color:'#eef2f6'}},
-        x:{grid:{display:false},ticks:{font:{size:11}}}
+        x:{grid:{display:false},offset:!!opt.xOffset,ticks:{font:{size:11}}}
       }},
     plugins:opt.plugins||[]
   });
@@ -1929,7 +1932,7 @@ function replayWorkerTrend(){
           label:ctx=>ctx.dataset.label+'：'+Math.round(ctx.parsed.y)+'点'
         }}},
       scales:{
-        x:{type:'linear',min:0,max:months.length-1,grid:{display:false},
+        x:{type:'linear',min:0,max:months.length-1+.08,grid:{display:false},
           ticks:{stepSize:1,font:{size:11},callback:v=>months[Math.round(v)]||''}},
         y:{beginAtZero:true,ticks:{font:{size:11}},grid:{color:'#eef2f6'}}
       }},
@@ -1985,7 +1988,7 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='ArrowDown'){moveFocus(1,0);e.preventDefault();}
   else if(e.key==='ArrowUp'){moveFocus(-1,0);e.preventDefault();}
 });
-function renderAll(){renderMatrix();renderAdmin();if($('#view-dash').classList.contains('active'))renderDash();if($('#view-risk').classList.contains('active'))renderRisk();}
+function renderAll(){renderMatrix();renderAdmin();if($('#view-dash').classList.contains('active'))renderDash(false);if($('#view-risk').classList.contains('active'))renderRisk();}
 
 /* ▼▼▼ ここにGASのデプロイURLを貼ると保存が有効になります ▼▼▼
    例：const GAS_URL='https://script.google.com/.../exec';
