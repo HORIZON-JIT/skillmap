@@ -142,6 +142,7 @@
   .matrix-cat-toggle.collapsed{transform:rotate(-90deg)}
   .matrix-collapsed-row td{background:#FAF7F1;color:var(--ink-dim);font-size:12px;font-weight:700}
   .matrix-collapsed-note{text-align:left;padding:10px 14px}
+  .sub-head-cell{text-align:left;padding:5px 12px;background:#F6F1E7;font-size:12px;font-weight:800;color:var(--ink-dim);position:sticky;left:78px;z-index:1}
   .code-cell{position:sticky;left:78px;z-index:2;width:54px;min-width:54px;font-size:12px;font-weight:800;background:var(--surface)}
   .task-name{text-align:left;padding:7px 10px;background:var(--surface);position:sticky;left:132px;z-index:2;min-width:128px;font-size:13px;font-weight:600}
   .doc-badge{font-size:10px;padding:1.5px 7px;border-radius:6px;margin-left:7px;vertical-align:middle;font-weight:800}
@@ -239,8 +240,8 @@
   .snap-bar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
   .snap-bar .note{font-size:12px;color:var(--ink-dim)}
 
-  .admin-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
-  @media(max-width:980px){.admin-grid{grid-template-columns:1fr 1fr}}
+  .admin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media(max-width:1180px){.admin-grid{grid-template-columns:1fr 1fr}}
   @media(max-width:760px){.admin-grid{grid-template-columns:1fr}}
   .admin-col{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
   .admin-col h3{font-size:14px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
@@ -274,6 +275,7 @@
   .task-group-toggle .group-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .task-group-toggle .group-count{font-size:11px;color:var(--ink-dim);font-weight:700}
   .task-group-body.collapsed{display:none}
+  .task-subhead{font-size:11.5px;font-weight:800;color:var(--ink-dim);padding:6px 10px 2px;margin-left:6px}
   .task-item-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;min-height:48px}
   .task-info{min-width:0;display:flex;align-items:baseline;gap:4px;white-space:nowrap;overflow:hidden}
   .task-info strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -444,6 +446,7 @@
     <button class="mini-btn" id="exportBtn">JSONエクスポート</button>
     <button class="mini-btn" id="importBtn">JSONインポート（復元）</button>
     <input type="file" id="importFile" accept="application/json,.json" style="display:none">
+    <button class="mini-btn" id="importLegacyBtn">古いスキルマップを取り込む（追加）</button>
   </div>
   <div class="admin-grid">
     <div class="admin-col">
@@ -467,10 +470,20 @@
       <div class="item-list" id="catList"></div>
     </div>
     <div class="admin-col">
-      <h3>作業マスタ（中分類）</h3>
+      <h3>中分類マスタ</h3>
       <div class="form-row">
-        <input type="text" id="newTaskName" placeholder="作業名">
-        <select id="newTaskCat" class="sel"></select>
+        <input type="text" id="newSubName" placeholder="中分類名（例：計画管理）">
+        <select id="newSubCat" class="sel"></select>
+        <button class="primary mini-btn" id="addSub">追加</button>
+      </div>
+      <div class="item-list" id="subcatList"></div>
+    </div>
+    <div class="admin-col">
+      <h3>作業マスタ（小分類）</h3>
+      <div class="form-row">
+        <input type="text" id="newTaskName" placeholder="作業名（小分類）">
+        <select id="newTaskCat" class="sel" title="大分類"></select>
+        <select id="newTaskSub" class="sel" title="中分類"></select>
       </div>
       <div class="form-row" style="margin-top:-4px">
         <span class="meta" style="font-size:11px;color:var(--ink-dim)">コードは大分類の略号＋並び順で自動採番：<strong id="newTaskCodePreview">—</strong></span>
@@ -544,6 +557,8 @@ let snapshots = [
   {month:'2026-04', totals:{W001:29, W002:15, W003:7,  W004:4}, fill:36, risk:8},
   {month:'2026-05', totals:{W001:32, W002:18, W003:9,  W004:6}, fill:40, risk:7},
 ];
+// 中分類（大分類→中分類→小分類の中間階層）。task.catId は常に大分類ID、task.subCatId が中分類ID
+let subcats = [];
 
 let showDisabled=false, dirty=false;
 const dirtyKeys=new Set();
@@ -552,6 +567,7 @@ const skillDirtyKeys=new Set();
 // Firebase保存で「削除されたドキュメント」を反映するための記録
 const deletedWorkerIds=new Set();
 const deletedCatIds=new Set();
+const deletedSubCatIds=new Set();
 const deletedTaskIds=new Set();
 const deletedSkillKeys=new Set();
 const matrixGroupCollapsed={};
@@ -568,6 +584,11 @@ const getLv=(t,w)=>skills[skey(t,w)]??0;
 const esc=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);};
 const catName=id=>{const c=categories.find(x=>x.id===id);return c?c.name:'未分類';};
+const subName=id=>{const s=subcats.find(x=>x.id===id);return s?s.name:'';};
+// 大分類の有効な中分類を並び順で返す
+function orderedSubcats(catId){return subcats.filter(s=>s.active!==false&&s.catId===catId).slice().sort((a,b)=>(a.order||0)-(b.order||0));}
+// task が有効な中分類に属しているか（属していれば中分類ID、なければ ''）
+function taskSubId(t){const s=t.subCatId&&subcats.find(x=>x.id===t.subCatId&&x.active!==false);return s?t.subCatId:'';}
 function markDirty(){
   dirty=true;
   Array.from(arguments).forEach(k=>dirtyKeys.add(k));
@@ -618,7 +639,7 @@ function loadDataCache(){
 }
 function saveDataCache(){
   try{
-    localStorage.setItem(DATA_CACHE_KEY,JSON.stringify({workers,categories,tasks,skills,snapshots,savedAt:Date.now()}));
+    localStorage.setItem(DATA_CACHE_KEY,JSON.stringify({workers,categories,subcats,tasks,skills,snapshots,savedAt:Date.now()}));
   }catch(e){console.warn('data cache save failed',e);}
 }
 function applyLoadedData(d){
@@ -627,11 +648,12 @@ function applyLoadedData(d){
   skills=d.skills||{};
   snapshots=d.snapshots||[];
   if(d.categories&&d.categories.length)categories=d.categories;
+  if(Array.isArray(d.subcats))subcats=d.subcats;
   restoreWorkerAvatars();
   dirtyKeys.clear();
   avatarDirtyIds.clear();
   skillDirtyKeys.clear();
-  deletedWorkerIds.clear();deletedCatIds.clear();deletedTaskIds.clear();deletedSkillKeys.clear();
+  deletedWorkerIds.clear();deletedCatIds.clear();deletedSubCatIds.clear();deletedTaskIds.clear();deletedSkillKeys.clear();
 }
 async function loadAvatarsLater(){
   try{
@@ -695,18 +717,28 @@ function orderedCats(){
   const cs=categories.filter(c=>c.active).slice().sort((a,b)=>a.order-b.order);
   return cs;
 }
-// 表示対象の作業を大分類ごとにまとめた配列を返す [{cat, tasks:[...]}]
+// 表示対象の作業を「大分類 → (直下 + 中分類グループ)」にまとめて返す。
+// g.tasks は直下→各中分類の順で並べた全作業（フラット）= 画面の行順
 function groupedTasks(){
   const at=tasks.filter(t=>showDisabled||t.active);
   const byOrder=(a,b)=>(a.order||0)-(b.order||0);
   const groups=[];
   orderedCats().forEach(c=>{
-    const ts=at.filter(t=>t.catId===c.id).slice().sort(byOrder);
-    if(ts.length)groups.push({cat:c, tasks:ts});
+    const catTasks=at.filter(t=>t.catId===c.id);
+    if(!catTasks.length)return;
+    const direct=catTasks.filter(t=>!taskSubId(t)).slice().sort(byOrder);
+    const subs=[];
+    orderedSubcats(c.id).forEach(s=>{
+      const ts=catTasks.filter(t=>taskSubId(t)===s.id).slice().sort(byOrder);
+      if(ts.length)subs.push({sub:s, tasks:ts});
+    });
+    let all=direct.slice();
+    subs.forEach(x=>{all=all.concat(x.tasks);});
+    if(all.length)groups.push({cat:c, direct:direct, subs:subs, tasks:all});
   });
   // どの有効分類にも属さない作業（分類が無効化/削除された等）
   const orphan=at.filter(t=>!categories.find(c=>c.active&&c.id===t.catId)).slice().sort(byOrder);
-  if(orphan.length)groups.push({cat:{id:'',name:'未分類'}, tasks:orphan});
+  if(orphan.length)groups.push({cat:{id:'',name:'未分類'}, direct:orphan, subs:[], tasks:orphan});
   return groups;
 }
 
@@ -727,7 +759,7 @@ function renderMatrix(){
   let html='<thead><tr>'+
     '<th class="corner-cat">大分類</th>'+
     '<th class="corner-code">コード</th>'+
-    '<th class="corner-task">中分類（クリックで加算）</th>';
+    '<th class="corner-task">小分類（クリックで加算）</th>';
   aw.forEach((w,i)=>html+='<th class="worker-head'+(w.id===selectedWorkerId?' sel-col':'')+'" data-w="'+w.id+'"'+(w.active?'':' style="opacity:.45"')+'>'+
     '<div class="worker-head-wrap">'+
       '<span class="worker-head-name">'+esc(w.name)+'</span>'+
@@ -747,26 +779,37 @@ function renderMatrix(){
         '<div class="cat-code" style="color:'+col+'">'+esc(g.cat.code||'')+'</div>'+
         '<div class="cat-label">'+esc(g.cat.name)+'</div></td>';
       html+='<td class="code-cell" style="color:'+col+'">-</td>';
-      html+='<td class="matrix-collapsed-note" colspan="'+(aw.length+2)+'">'+esc(g.tasks.length)+'件の中分類を折りたたみ中</td>';
+      html+='<td class="matrix-collapsed-note" colspan="'+(aw.length+2)+'">'+esc(g.tasks.length)+'件の小分類を折りたたみ中</td>';
       html+='</tr>';
       return;
     }
-    g.tasks.forEach((t,i)=>{
-      const masters=aw.filter(w=>getLv(t.id,w.id)===3).length;
-      const able=aw.filter(w=>getLv(t.id,w.id)>=1).length;
-      const isLast=i===g.tasks.length-1;
+    // 行シーケンスを構築：直下作業 → 各中分類（見出し＋作業）
+    const seq=[];
+    g.direct.forEach(t=>seq.push({k:'t',t:t}));
+    g.subs.forEach(sg=>{ seq.push({k:'s',sub:sg.sub}); sg.tasks.forEach(t=>seq.push({k:'t',t:t})); });
+    const span=seq.length;
+    seq.forEach((row,ri)=>{
+      const isLast=ri===seq.length-1;
       html+='<tr class="task-tr'+(isLast?' grp-end':'')+'">';
       // 大分類セル（グループ先頭行だけrowspanで出す）
-      if(i===0){
-        html+='<td class="cat-cell" rowspan="'+g.tasks.length+'" '+
+      if(ri===0){
+        html+='<td class="cat-cell" rowspan="'+span+'" '+
           'style="border-left:6px solid '+col+';background:'+hexToSoft(col)+'">'+
           '<button type="button" class="matrix-cat-toggle" data-cat="'+esc(groupKey)+'" aria-expanded="true">▼</button>'+
           '<div class="cat-code" style="color:'+col+'">'+esc(g.cat.code||'')+'</div>'+
           '<div class="cat-label">'+esc(g.cat.name)+'</div></td>';
       }
+      if(row.k==='s'){
+        // 中分類の見出し行
+        html+='<td class="sub-head-cell" colspan="'+(aw.length+3)+'" style="border-left:3px solid '+col+'">▸ '+esc(row.sub.name)+'</td></tr>';
+        return;
+      }
+      const t=row.t;
+      const masters=aw.filter(w=>getLv(t.id,w.id)===3).length;
+      const able=aw.filter(w=>getLv(t.id,w.id)>=1).length;
       // コード列
       html+='<td class="code-cell" style="color:'+col+'">'+esc(t.code||'')+'</td>';
-      // 中分類名
+      // 小分類名
       html+='<td class="task-name" style="'+(t.active?'':'opacity:.45')+'">'+esc(t.name);
       html+=t.hasDoc?'<span class="doc-badge doc-yes">手順書</span>':'<span class="doc-badge doc-no">手順書なし</span>';
       if(t.link)html+='<a class="doc-link" href="'+esc(t.link)+'" target="_blank">開く</a>';
@@ -1213,12 +1256,13 @@ function renderAdmin(){
 
   // 大分類一覧（並び順）
   const cats=categories.slice().sort((a,b)=>a.order-b.order);
+  const byOrder=(a,b)=>(a.order||0)-(b.order||0);
   $('#catList').innerHTML=cats.map((c,i)=>
     '<div class="item-row '+(c.active?'':'disabled')+'" data-dnd="C" data-id="'+c.id+'">'+
       '<div style="display:flex;align-items:center;gap:8px">'+
         '<span class="drag-handle" draggable="true" title="ドラッグで並べ替え">⠿</span>'+
         '<span style="width:12px;height:12px;border-radius:3px;background:'+(c.color||'#94a3b8')+';flex:0 0 auto"></span>'+
-        '<div><strong>'+esc(c.code?('['+c.code+'] '):'')+esc(c.name)+'</strong> <span class="meta">'+tasks.filter(t=>t.catId===c.id&&t.active).length+'作業</span></div>'+
+        '<div><strong>'+esc(c.code?('['+c.code+'] '):'')+esc(c.name)+'</strong> <span class="meta">中分類'+subcats.filter(s=>s.catId===c.id).length+' / 作業'+tasks.filter(t=>t.catId===c.id&&t.active).length+'</span></div>'+
       '</div>'+
       '<div style="display:flex;gap:4px">'+
         '<button class="mini-btn" data-act="editC" data-id="'+c.id+'">編集</button>'+
@@ -1227,12 +1271,36 @@ function renderAdmin(){
       '</div>'+
     '</div>').join('');
 
-  // 作業追加の分類プルダウン充填
-  const opts=orderedCats().map(c=>'<option value="'+c.id+'">'+esc(c.code?(c.code+'：'):'')+esc(c.name)+'</option>').join('');
-  $('#newTaskCat').innerHTML=opts||'<option value="">（大分類なし）</option>';
+  // 中分類マスタ（大分類ごと）
+  let sc='';
+  cats.forEach(c=>{
+    const subs=subcats.filter(s=>s.catId===c.id).slice().sort(byOrder);
+    sc+='<div class="task-group-head"><div class="task-group-toggle" style="cursor:default"><span class="group-title">'+esc(c.code?('['+c.code+'] '):'')+esc(c.name)+'</span><span class="group-count">中分類'+subs.length+'</span></div></div>';
+    if(!subs.length){ sc+='<div class="meta" style="padding:4px 10px">（中分類なし）</div>'; return; }
+    subs.forEach(s=>{
+      sc+='<div class="item-row '+(s.active!==false?'':'disabled')+'" data-dnd="S" data-id="'+s.id+'" data-group="SC:'+c.id+'">'+
+        '<div style="display:flex;align-items:center;gap:8px;min-width:0">'+
+          '<span class="drag-handle" draggable="true" title="ドラッグで並べ替え">⠿</span>'+
+          '<div style="min-width:0"><strong>'+esc(s.name)+'</strong> <span class="meta">'+tasks.filter(t=>t.subCatId===s.id).length+'作業</span></div>'+
+        '</div>'+
+        '<div style="display:flex;gap:4px">'+
+          '<button class="mini-btn" data-act="editS" data-id="'+s.id+'">編集</button>'+
+          '<button class="'+(s.active!==false?'danger':'primary')+' mini-btn" data-act="'+(s.active!==false?'disS':'enS')+'" data-id="'+s.id+'">'+(s.active!==false?'無効化':'復活')+'</button>'+
+          '<button class="danger mini-btn" data-act="delS" data-id="'+s.id+'">削除</button>'+
+        '</div>'+
+      '</div>';
+    });
+  });
+  $('#subcatList').innerHTML=sc;
+
+  // セレクト充填（大分類・中分類追加先）
+  const catOpts=orderedCats().map(c=>'<option value="'+c.id+'">'+esc(c.code?(c.code+'：'):'')+esc(c.name)+'</option>').join('');
+  $('#newTaskCat').innerHTML=catOpts||'<option value="">（大分類なし）</option>';
+  $('#newSubCat').innerHTML=catOpts||'<option value="">（大分類なし）</option>';
+  updateTaskSubOptions();
   updateTaskCodePreview();
 
-  // 作業一覧（大分類ごとにまとめ、分類内order順で↑↓並び替え）
+  // 作業一覧（大分類→直下＋中分類でまとめ）
   let th='';
   groupedTasks().forEach(g=>{
     const groupKey=g.cat.id||'_orphan';
@@ -1246,8 +1314,9 @@ function renderAdmin(){
       '</button>'+
     '</div>';
     th+='<div class="task-group-body '+(collapsed?'collapsed':'')+'">';
-    g.tasks.forEach((t,i)=>{
-      th+='<div class="item-row task-item-row '+(t.active?'':'disabled')+'" data-dnd="T" data-id="'+t.id+'" data-group="'+esc(groupKey)+'">'+
+    const taskRow=(t)=>{
+      const grp=taskSubId(t)?('S:'+taskSubId(t)):('D:'+t.catId);
+      return '<div class="item-row task-item-row '+(t.active?'':'disabled')+'" data-dnd="T" data-id="'+t.id+'" data-group="'+esc(grp)+'">'+
         '<div class="task-info"><span class="drag-handle" draggable="true" title="ドラッグで並べ替え">⠿</span>'+
           '<strong>'+esc(t.code?(t.code+' '):'')+esc(t.name)+'</strong> '+
           '<span class="meta">'+(t.hasDoc?'手順書あり':'手順書なし')+
@@ -1258,6 +1327,11 @@ function renderAdmin(){
           '<button class="danger mini-btn" data-act="delT" data-id="'+t.id+'">削除</button>'+
         '</div>'+
       '</div>';
+    };
+    g.direct.forEach(t=>{ th+=taskRow(t); });
+    g.subs.forEach(sg=>{
+      th+='<div class="task-subhead">▸ '+esc(sg.sub.name)+'</div>';
+      sg.tasks.forEach(t=>{ th+=taskRow(t); });
     });
     th+='</div>';
   });
@@ -1284,9 +1358,21 @@ function renderAdmin(){
     else if(act==='delC'){deleteCat(id);return;}
     else if(act==='upC'||act==='dnC'){moveCat(id,act==='upC'?-1:1);return;}
     else if(act==='editC'){openCatEdit(id);return;}
+    else if(act==='disS'){const s=subcats.find(x=>x.id===id);
+      if(confirm('中分類「'+s.name+'」を無効化します。\n属する作業は大分類の直下に表示されます。よろしいですか？')){s.active=false;markDirty('subcats');}}
+    else if(act==='enS'){subcats.find(x=>x.id===id).active=true;markDirty('subcats');}
+    else if(act==='delS'){deleteSubcat(id);return;}
+    else if(act==='editS'){openSubEdit(id);return;}
     renderAll();
   }));
   wireDnd();
+}
+// 作業追加フォーム：選択中の大分類に対する中分類セレクトを充填
+function updateTaskSubOptions(){
+  const sel=$('#newTaskSub'); if(!sel)return;
+  const catId=$('#newTaskCat')?$('#newTaskCat').value:'';
+  const subs=orderedSubcats(catId);
+  sel.innerHTML='<option value="">（直下：中分類なし）</option>'+subs.map(s=>'<option value="'+s.id+'">'+esc(s.name)+'</option>').join('');
 }
 
 /* =========================================================
@@ -1305,7 +1391,7 @@ function dndCompatible(row){
   return true;
 }
 function wireDnd(){
-  ['#workerList','#catList','#taskList'].forEach(sel=>{
+  ['#workerList','#catList','#subcatList','#taskList'].forEach(sel=>{
     const list=$(sel); if(!list)return;
     list.querySelectorAll('.drag-handle').forEach(h=>{
       h.addEventListener('dragstart',e=>{
@@ -1354,17 +1440,27 @@ function applyDrop(type,dragId,targetId,before){
     ordered.splice(to,0,item);
     ordered.forEach((c,i)=>c.order=i+1);
     markDirty('categories');
-  }else if(type==='T'){
-    let g=null;
-    groupedTasks().forEach(gr=>{ if(gr.tasks.some(t=>t.id===dragId))g=gr; });
-    if(!g)return;
-    const ordered=g.tasks.slice();
-    const from=ordered.findIndex(t=>t.id===dragId); if(from<0)return;
+  }else if(type==='S'){
+    const ds=subcats.find(x=>x.id===dragId); if(!ds)return;
+    const ordered=subcats.filter(s=>s.catId===ds.catId).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+    const from=ordered.findIndex(s=>s.id===dragId); if(from<0)return;
     const item=ordered.splice(from,1)[0];
-    let to=ordered.findIndex(t=>t.id===targetId); if(to<0)return;
+    let to=ordered.findIndex(s=>s.id===targetId); if(to<0)return;
     if(!before)to+=1;
     ordered.splice(to,0,item);
-    ordered.forEach((t,i)=>t.order=i+1);
+    ordered.forEach((s,i)=>s.order=i+1);
+    markDirty('subcats');
+  }else if(type==='T'){
+    const dt=tasks.find(t=>t.id===dragId); if(!dt)return;
+    const sid=taskSubId(dt);
+    // 同じ並び（同一大分類かつ同一中分類＝直下なら中分類なし）のきょうだいを order 順に
+    const sib=tasks.filter(t=>t.catId===dt.catId&&taskSubId(t)===sid&&(showDisabled||t.active)).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+    const from=sib.findIndex(t=>t.id===dragId); if(from<0)return;
+    const item=sib.splice(from,1)[0];
+    let to=sib.findIndex(t=>t.id===targetId); if(to<0)return;
+    if(!before)to+=1;
+    sib.splice(to,0,item);
+    sib.forEach((t,i)=>t.order=i+1);
     markDirty('tasks');
   }
   renderAll();
@@ -1407,10 +1503,52 @@ function deleteCat(id){
   msg+='\n元に戻せません。よろしいですか？';
   if(!confirm(msg))return;
   ts.forEach(t=>{ deletedTaskIds.add(t.id); purgeTaskSkills(t.id); });
+  subcats.filter(s=>s.catId===id).forEach(s=>deletedSubCatIds.add(s.id));
+  subcats=subcats.filter(s=>s.catId!==id);
   tasks=tasks.filter(t=>t.catId!==id);
   categories=categories.filter(x=>x.id!==id);
   deletedCatIds.add(id);
-  markDirty('categories','tasks','skills'); renderAll(); toast('大分類を削除しました');
+  markDirty('categories','subcats','tasks','skills'); renderAll(); toast('大分類を削除しました');
+}
+// 中分類を削除（属する作業は大分類の直下へ移動。評価は保持）
+function deleteSubcat(id){
+  const s=subcats.find(x=>x.id===id); if(!s)return;
+  const ts=tasks.filter(t=>t.subCatId===id);
+  if(!confirm('中分類「'+s.name+'」を削除します。\n属する作業 '+ts.length+' 件は大分類の直下に移動します（評価は保持）。よろしいですか？'))return;
+  ts.forEach(t=>{ t.subCatId=''; });
+  subcats=subcats.filter(x=>x.id!==id);
+  deletedSubCatIds.add(id);
+  markDirty('subcats'); if(ts.length)markDirty('tasks');
+  renderAll(); toast('中分類を削除しました');
+}
+// 中分類のインライン編集（名称・所属大分類）
+function openSubEdit(id){
+  const s=subcats.find(x=>x.id===id); if(!s)return;
+  const row=$('#subcatList').querySelector('.item-row[data-id="'+CSS.escape(id)+'"]');
+  if(!row)return;
+  row.innerHTML=
+    '<div style="flex:1;display:flex;gap:6px;align-items:center;min-width:0">'+
+      '<input type="text" id="edtSubName" value="'+esc(s.name)+'" style="flex:1">'+
+      '<select id="edtSubCat" class="sel">'+orderedCats().map(c=>'<option value="'+c.id+'"'+(c.id===s.catId?' selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>'+
+    '</div>'+
+    '<div style="display:flex;gap:6px">'+
+      '<button class="primary mini-btn" id="edtSubSave">保存</button>'+
+      '<button class="mini-btn" id="edtSubCancel">取消</button>'+
+    '</div>';
+  row.querySelector('#edtSubSave').addEventListener('click',()=>{
+    const nm=row.querySelector('#edtSubName').value.trim();
+    if(!nm){toast('中分類名を入力してください');return;}
+    const newCat=row.querySelector('#edtSubCat').value;
+    if(newCat!==s.catId){
+      const mx=subcats.filter(x=>x.catId===newCat&&x.id!==s.id).reduce((m,x)=>Math.max(m,x.order||0),0);
+      s.catId=newCat; s.order=mx+1;
+      tasks.filter(t=>t.subCatId===s.id).forEach(t=>{ t.catId=newCat; });
+      markDirty('tasks');
+    }
+    s.name=nm;
+    markDirty('subcats'); renderAll(); toast('中分類を更新しました');
+  });
+  row.querySelector('#edtSubCancel').addEventListener('click',renderAdmin);
 }
 
 /* 作業（中分類）の並び替え：同じ大分類グループ内で前後と入れ替え */
@@ -1531,9 +1669,10 @@ function openTaskEdit(id){
         '<input type="text" id="edtName" value="'+esc(t.name)+'" placeholder="作業名">'+
       '</div>'+
       '<div class="form-row" style="margin:0">'+
-        '<select id="edtCat" class="sel">'+
+        '<select id="edtCat" class="sel" title="大分類">'+
           orderedCats().map(c=>'<option value="'+c.id+'"'+(c.id===t.catId?' selected':'')+'>'+esc(c.code?(c.code+'：'):'')+esc(c.name)+'</option>').join('')+
         '</select>'+
+        '<select id="edtSub" class="sel" title="中分類"></select>'+
       '</div>'+
       '<div class="form-row" style="margin:0">'+
         '<label class="cb"><input type="checkbox" id="edtDoc" '+(t.hasDoc?'checked':'')+'>手順書あり</label>'+
@@ -1544,13 +1683,22 @@ function openTaskEdit(id){
       '<button class="primary mini-btn" id="edtSave">保存</button>'+
       '<button class="mini-btn" id="edtCancel">取消</button>'+
     '</div>';
+  const fillSub=()=>{
+    const cid=row.querySelector('#edtCat').value;
+    const subs=orderedSubcats(cid);
+    row.querySelector('#edtSub').innerHTML='<option value="">（直下：中分類なし）</option>'+
+      subs.map(s=>'<option value="'+s.id+'"'+(s.id===t.subCatId?' selected':'')+'>'+esc(s.name)+'</option>').join('');
+  };
+  fillSub();
+  row.querySelector('#edtCat').addEventListener('change',fillSub);
   row.querySelector('#edtSave').addEventListener('click',()=>{
     const nm=row.querySelector('#edtName').value.trim();
     if(!nm){toast('作業名を入力してください');return;}
     const newCat=row.querySelector('#edtCat').value;
-    if(newCat!==t.catId){
-      const maxOrder=tasks.filter(x=>x.catId===newCat&&x.id!==t.id).reduce((m,x)=>Math.max(m,x.order||0),0);
-      t.catId=newCat; t.order=maxOrder+1;
+    const newSub=row.querySelector('#edtSub').value;
+    if(newCat!==t.catId||(newSub||'')!==(t.subCatId||'')){
+      const maxOrder=tasks.filter(x=>x.catId===newCat&&(x.subCatId||'')===(newSub||'')&&x.id!==t.id).reduce((m,x)=>Math.max(m,x.order||0),0);
+      t.catId=newCat; t.subCatId=newSub; t.order=maxOrder+1;
       taskGroupCollapsed[newCat]=false;
     }
     t.name=nm;
@@ -1563,12 +1711,15 @@ function nextId(arr,p){let n=0;arr.forEach(x=>{const v=parseInt(x.id.replace(p,'
 /* 作業コードは「大分類の略号 ＋ その分類内の並び順」で自動決定（例：a→a1,a2,…）。
    並び替え・削除・分類変更のたびにこの関数で振り直す。 */
 function renumberTaskCodes(){
+  const byOrder=(a,b)=>(a.order||0)-(b.order||0);
   categories.forEach(c=>{
-    tasks.filter(t=>t.catId===c.id).sort((a,b)=>(a.order||0)-(b.order||0))
-      .forEach((t,i)=>{ t.code=(c.code||'')+(i+1); });
+    const ct=tasks.filter(t=>t.catId===c.id);
+    let seq=ct.filter(t=>!taskSubId(t)).slice().sort(byOrder);     // 直下
+    orderedSubcats(c.id).forEach(s=>{ seq=seq.concat(ct.filter(t=>taskSubId(t)===s.id).slice().sort(byOrder)); });
+    seq.forEach((t,i)=>{ t.code=(c.code||'')+(i+1); });
   });
   // どの大分類にも属さない作業（分類が削除された等）は略号なしの連番
-  tasks.filter(t=>!categories.find(c=>c.id===t.catId)).sort((a,b)=>(a.order||0)-(b.order||0))
+  tasks.filter(t=>!categories.find(c=>c.id===t.catId)).sort(byOrder)
     .forEach((t,i)=>{ t.code=String(i+1); });
 }
 /* 追加すると末尾に並ぶので、次のコード＝略号＋（その分類の作業数＋1） */
@@ -1595,12 +1746,20 @@ $('#addWorker').addEventListener('click',async()=>{
 $('#addTask').addEventListener('click',()=>{
   const name=$('#newTaskName').value.trim();if(!name){toast('作業名を入力してください');return;}
   const catId=$('#newTaskCat').value;
-  const maxOrder=tasks.filter(t=>t.catId===catId).reduce((m,t)=>Math.max(m,t.order||0),0);
-  tasks.push({id:nextId(tasks,'T'),code:nextTaskCode(catId),name:name,catId:catId,order:maxOrder+1,hasDoc:$('#newTaskDoc').checked,link:$('#newTaskLink').value.trim(),active:true});
+  const subId=$('#newTaskSub')?$('#newTaskSub').value:'';
+  const maxOrder=tasks.filter(t=>t.catId===catId&&(t.subCatId||'')===(subId||'')).reduce((m,t)=>Math.max(m,t.order||0),0);
+  tasks.push({id:nextId(tasks,'T'),code:nextTaskCode(catId),name:name,catId:catId,subCatId:subId,order:maxOrder+1,hasDoc:$('#newTaskDoc').checked,link:$('#newTaskLink').value.trim(),active:true});
   taskGroupCollapsed[catId||'_orphan']=false;
   $('#newTaskName').value='';$('#newTaskLink').value='';$('#newTaskDoc').checked=false;markDirty('tasks');renderAll();toast('作業を追加しました');
 });
-$('#newTaskCat').addEventListener('change',updateTaskCodePreview);
+$('#newTaskCat').addEventListener('change',()=>{updateTaskSubOptions();updateTaskCodePreview();});
+$('#addSub').addEventListener('click',()=>{
+  const name=$('#newSubName').value.trim();if(!name){toast('中分類名を入力してください');return;}
+  const catId=$('#newSubCat').value;if(!catId){toast('大分類を選んでください');return;}
+  const maxOrder=subcats.filter(s=>s.catId===catId).reduce((m,s)=>Math.max(m,s.order||0),0);
+  subcats.push({id:nextId(subcats,'S'),name:name,catId:catId,order:maxOrder+1,active:true});
+  $('#newSubName').value='';markDirty('subcats');renderAll();toast('中分類を追加しました');
+});
 $('#addCat').addEventListener('click',()=>{
   const name=$('#newCatName').value.trim();if(!name){toast('大分類名を入力してください');return;}
   const maxOrder=categories.reduce((m,c)=>Math.max(m,c.order),0);
@@ -1777,7 +1936,7 @@ function saveOk(){
   avatarDirtyIds.clear();
   skillDirtyKeys.clear();
   dirtyKeys.clear();
-  deletedWorkerIds.clear();deletedCatIds.clear();deletedTaskIds.clear();deletedSkillKeys.clear();
+  deletedWorkerIds.clear();deletedCatIds.clear();deletedSubCatIds.clear();deletedTaskIds.clear();deletedSkillKeys.clear();
   dirty=false;toast('保存しました');
   $('#statusDot').classList.add('online');
   $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 保存）';
@@ -1792,15 +1951,17 @@ async function loadFromFirestore(){
     renderAll();
   }
   try{
-    const [wS,cS,tS,kS,sS]=await Promise.all([
+    const [wS,cS,scS,tS,kS,sS]=await Promise.all([
       fdb.collection('workers').get(),
       fdb.collection('categories').get(),
+      fdb.collection('subcategories').get(),
       fdb.collection('tasks').get(),
       fdb.collection('skills').get(),
       fdb.collection('snapshots').get(),
     ]);
     const ws=wS.docs.map(d=>Object.assign({id:d.id},d.data())).sort((a,b)=>(a.ord||0)-(b.ord||0));
     const cs=cS.docs.map(d=>Object.assign({id:d.id},d.data()));
+    const scs=scS.docs.map(d=>Object.assign({id:d.id},d.data()));
     const ts=tS.docs.map(d=>Object.assign({id:d.id},d.data()));
     const sk={}; kS.docs.forEach(d=>{sk[d.id]=Number((d.data()||{}).level||0);});
     const snaps=sS.docs.map(d=>{const x=d.data()||{};return {month:d.id,fill:Number(x.fill||0),risk:Number(x.risk||0),totals:x.totals||{}};})
@@ -1810,7 +1971,7 @@ async function loadFromFirestore(){
       $('#statusText').textContent='接続済み・データ未保存（保存ボタンで初回登録／管理タブから移行）';
       renderAll();return;
     }
-    applyLoadedData({workers:ws,categories:cs,tasks:ts,skills:sk,snapshots:snaps});
+    applyLoadedData({workers:ws,categories:cs,subcats:scs,tasks:ts,skills:sk,snapshots:snaps});
     saveDataCache();
     $('#statusDot').classList.add('online');
     $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 読込）';
@@ -1827,7 +1988,8 @@ async function commitOps(ops){
 }
 function workerDoc(w,i){return {name:w.name||'',code:w.code||'',active:w.active!==false,ord:i,avatarDataUrl:w.avatarDataUrl||''};}
 function catDoc(c){return {code:c.code||'',name:c.name||'',color:c.color||'',order:Number(c.order||0),active:c.active!==false};}
-function taskDoc(t){return {code:t.code||'',name:t.name||'',catId:t.catId||'',order:Number(t.order||0),hasDoc:!!t.hasDoc,link:t.link||'',active:t.active!==false};}
+function subcatDoc(s){return {name:s.name||'',catId:s.catId||'',order:Number(s.order||0),active:s.active!==false};}
+function taskDoc(t){return {code:t.code||'',name:t.name||'',catId:t.catId||'',subCatId:t.subCatId||'',order:Number(t.order||0),hasDoc:!!t.hasDoc,link:t.link||'',active:t.active!==false};}
 function snapDoc(s){return {fill:Number(s.fill||0),risk:Number(s.risk||0),totals:s.totals||{}};}
 // 差分（変更されたコレクション／個別セル／削除）だけを書き込む
 async function saveToFirestore(){
@@ -1836,6 +1998,8 @@ async function saveToFirestore(){
   deletedWorkerIds.forEach(id=>ops.push({ref:fdb.collection('workers').doc(id),del:true}));
   if(dirtyKeys.has('categories'))categories.forEach(c=>ops.push({ref:fdb.collection('categories').doc(c.id),data:catDoc(c)}));
   deletedCatIds.forEach(id=>ops.push({ref:fdb.collection('categories').doc(id),del:true}));
+  if(dirtyKeys.has('subcats'))subcats.forEach(s=>ops.push({ref:fdb.collection('subcategories').doc(s.id),data:subcatDoc(s)}));
+  deletedSubCatIds.forEach(id=>ops.push({ref:fdb.collection('subcategories').doc(id),del:true}));
   if(dirtyKeys.has('tasks'))tasks.forEach(t=>ops.push({ref:fdb.collection('tasks').doc(t.id),data:taskDoc(t)}));
   deletedTaskIds.forEach(id=>ops.push({ref:fdb.collection('tasks').doc(id),del:true}));
   if(dirtyKeys.has('skills'))skillDirtyKeys.forEach(k=>{const p=k.split('|');ops.push({ref:fdb.collection('skills').doc(k),data:{taskId:p[0]||'',workerId:p[1]||'',level:Number(skills[k]||0)}});});
@@ -1856,8 +2020,8 @@ async function saveDataFirebase(){
 /* ========================= バックアップ（JSONエクスポート／インポート復元） ========================= */
 // 現在のデータを1つのJSONにまとめて返す
 function buildBackup(){
-  return {app:'skillmap',version:1,exportedAt:new Date().toISOString(),
-    workers:workers,categories:categories,tasks:tasks,skills:skills,snapshots:snapshots};
+  return {app:'skillmap',version:2,exportedAt:new Date().toISOString(),
+    workers:workers,categories:categories,subcats:subcats,tasks:tasks,skills:skills,snapshots:snapshots};
 }
 // JSONファイルとしてダウンロード
 function downloadBackup(prefix){
@@ -1905,12 +2069,13 @@ async function restoreToFirestore(d){
   toast('復元中…');
   try{
     const ops=[];
-    for(const col of ['workers','categories','tasks','skills','snapshots']){
+    for(const col of ['workers','categories','subcategories','tasks','skills','snapshots']){
       const snap=await fdb.collection(col).get();
       snap.docs.forEach(doc=>ops.push({ref:doc.ref,del:true}));
     }
     (d.workers||[]).forEach((w,i)=>{ if(w&&w.id)ops.push({ref:fdb.collection('workers').doc(w.id),data:workerDoc(w,i)}); });
     (d.categories||[]).forEach(c=>{ if(c&&c.id)ops.push({ref:fdb.collection('categories').doc(c.id),data:catDoc(c)}); });
+    (d.subcats||[]).forEach(s=>{ if(s&&s.id)ops.push({ref:fdb.collection('subcategories').doc(s.id),data:subcatDoc(s)}); });
     (d.tasks||[]).forEach(t=>{ if(t&&t.id)ops.push({ref:fdb.collection('tasks').doc(t.id),data:taskDoc(t)}); });
     Object.keys(d.skills||{}).forEach(k=>{const p=k.split('|');ops.push({ref:fdb.collection('skills').doc(k),data:{taskId:p[0]||'',workerId:p[1]||'',level:Number(d.skills[k]||0)}});});
     (d.snapshots||[]).forEach(s=>{ if(s&&s.month)ops.push({ref:fdb.collection('snapshots').doc(s.month),data:snapDoc(s)}); });
@@ -1923,6 +2088,61 @@ async function restoreToFirestore(d){
 $('#exportBtn')&&$('#exportBtn').addEventListener('click',exportJson);
 $('#importBtn')&&$('#importBtn').addEventListener('click',()=>$('#importFile').click());
 $('#importFile')&&$('#importFile').addEventListener('change',function(){importJsonFile(this);});
+
+// 古いスキルマップ（legacy-import.json）を「追加」で取り込み（中分類・スキル値込み）
+async function importLegacy(){
+  if(!USE_FIREBASE){toast('取り込みはFirebase接続時のみ可能です');return;}
+  let d;
+  try{ d=await (await fetch('legacy-import.json',{cache:'no-store'})).json(); }
+  catch(e){toast('取り込みデータを読み込めませんでした');console.error(e);return;}
+  const nc=(d.categories||[]).length,ns=(d.subcats||[]).length,nt=(d.tasks||[]).length;
+  if(!confirm('古いスキルマップを「追加」で取り込みます。\n大分類 '+nc+' / 中分類 '+ns+' / 作業 '+nt+' を新規追加し、各作業者のスキル値も取り込みます。\n（既存データは残ります）\n\n取り込み前に現状を自動バックアップします。よろしいですか？'))return;
+  downloadBackup('skillmap-before-import-');
+  const catIdByName={};
+  (d.categories||[]).forEach(c=>{
+    const id=nextId(categories,'C');
+    const order=categories.reduce((m,x)=>Math.max(m,x.order||0),0)+1;
+    categories.push({id:id,code:c.code||'',name:c.name,color:c.color||'#94a3b8',order:order,active:true});
+    catIdByName[c.name]=id;
+  });
+  const subIdByKey={};
+  (d.subcats||[]).forEach(s=>{
+    const cid=catIdByName[s.cat]; if(!cid)return;
+    const id=nextId(subcats,'S');
+    const order=subcats.filter(x=>x.catId===cid).reduce((m,x)=>Math.max(m,x.order||0),0)+1;
+    subcats.push({id:id,name:s.name,catId:cid,order:order,active:true});
+    subIdByKey[s.cat+''+s.name]=id;
+  });
+  // 作業者：同名（空白無視）の既存を使う。無ければ新規作成
+  const norm=n=>String(n||'').replace(/\s+/g,'');
+  const widByName={};
+  workers.forEach(w=>{ widByName[norm(w.name)]=w.id; });
+  (d.workers||[]).forEach(nm=>{
+    if(!widByName[norm(nm)]){
+      const id=nextId(workers,'W');
+      workers.push({id:id,name:nm,code:'',avatarDataUrl:'',active:true});
+      widByName[norm(nm)]=id; markDirty('workers');
+    }
+  });
+  (d.tasks||[]).forEach(t=>{
+    const cid=catIdByName[t.cat]; if(!cid)return;
+    const sid=subIdByKey[t.cat+''+t.sub]||'';
+    const id=nextId(tasks,'T');
+    const order=tasks.filter(x=>x.catId===cid&&(x.subCatId||'')===(sid||'')).reduce((m,x)=>Math.max(m,x.order||0),0)+1;
+    tasks.push({id:id,code:'',name:t.name,catId:cid,subCatId:sid,order:order,hasDoc:!!t.hasDoc,link:'',active:true});
+    const lv=t.levels||{};
+    Object.keys(lv).forEach(nm=>{
+      const wid=widByName[norm(nm)]; if(!wid)return;
+      const val=Number(lv[nm]||0); if(val<=0)return;
+      const key=id+'|'+wid; skills[key]=val; markSkillDirty(key);
+    });
+  });
+  markDirty('categories','subcats','tasks');
+  renderAll();
+  toast('取り込み完了。保存中…');
+  await saveData();
+}
+$('#importLegacyBtn')&&$('#importLegacyBtn').addEventListener('click',importLegacy);
 
 /* ========================= 起動・ログイン制御 ========================= */
 function showLoginGate(msg,isError){
