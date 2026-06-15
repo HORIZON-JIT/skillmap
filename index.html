@@ -451,6 +451,7 @@
     <input type="file" id="importFile" accept="application/json,.json" style="display:none">
     <button class="mini-btn" id="importLegacyBtn">古いスキルマップを取り込む（追加）</button>
     <button class="mini-btn" id="importHistoryBtn">過去のスキルポイント推移を取り込む</button>
+    <button class="mini-btn" id="cleanupSnapBtn">スナップショットを整理（月次・当月削除）</button>
   </div>
   <div class="admin-grid">
     <div class="admin-col">
@@ -650,7 +651,7 @@ function applyLoadedData(d){
   workers=d.workers||workers;
   tasks=d.tasks||tasks;
   skills=d.skills||{};
-  snapshots=d.snapshots||[];
+  snapshots=normalizeSnapshots(d.snapshots||[],false);  // 月キーを正規化＋同月を統合
   if(d.categories&&d.categories.length)categories=d.categories;
   if(Array.isArray(d.subcats))subcats=d.subcats;
   restoreWorkerAvatars();
@@ -1227,11 +1228,38 @@ function mkChart(id,type,labels,datasets,opt){
   });
 }
 
+// 月キー（YYYY-MM）に正規化。'2026-06'はそのまま、日付文字列(Fri May 01 2026…)等もMonthへ。
+function monthKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function normMonth(v){
+  if(v==null)return null;
+  if(typeof v==='string'){const m=v.match(/^(\d{4})-(\d{2})/);if(m)return m[1]+'-'+m[2];}
+  const dt=new Date(v);
+  return isNaN(dt.getTime())?null:monthKey(dt);
+}
+// スナップショット配列を月次に正規化＋同月を統合（合計点の大きい方＝実データを優先）。
+// dropFuture=trueで当月以降を除外。
+function normalizeSnapshots(arr,dropFuture){
+  const cur=monthKey(new Date());
+  const map=new Map();
+  (arr||[]).forEach(s=>{
+    const cm=normMonth(s.month); if(!cm)return;
+    if(dropFuture&&cm>=cur)return;
+    const rec={month:cm,fill:s.fill,risk:s.risk,totals:s.totals||{}};
+    if(map.has(cm)){
+      const prev=map.get(cm);
+      const sum=o=>Object.values(o.totals||{}).reduce((a,b)=>a+(Number(b)||0),0);
+      const keep=sum(rec)>=sum(prev)?rec:prev, drop=keep===rec?prev:rec;
+      if(keep.fill==null&&drop.fill!=null)keep.fill=drop.fill;
+      if(keep.risk==null&&drop.risk!=null)keep.risk=drop.risk;
+      map.set(cm,keep);
+    }else map.set(cm,rec);
+  });
+  return [...map.values()].sort((a,b)=>a.month.localeCompare(b.month));
+}
 // 保存のたびに「当月分」を自動更新。過去月は触らないので、月をまたぐと前月分はその月の
 // 最終保存値で固定される（＝各月の値は実質「月末時点」）。
 function autoSnapshot(){
-  const now=new Date();
-  const month=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const month=monthKey(new Date());
   const cur=calcCurrent();
   const rec={month:month,totals:Object.assign({},cur.totals),fill:cur.fill,risk:cur.risk};
   const idx=snapshots.findIndex(s=>s.month===month);
@@ -1968,8 +1996,7 @@ async function loadFromFirestore(){
     const scs=scS.docs.map(d=>Object.assign({id:d.id},d.data()));
     const ts=tS.docs.map(d=>Object.assign({id:d.id},d.data()));
     const sk={}; kS.docs.forEach(d=>{sk[d.id]=Number((d.data()||{}).level||0);});
-    const snaps=sS.docs.map(d=>{const x=d.data()||{};return {month:d.id,fill:x.fill==null?null:Number(x.fill),risk:x.risk==null?null:Number(x.risk),totals:x.totals||{}};})
-      .sort((a,b)=>a.month.localeCompare(b.month));
+    const snaps=sS.docs.map(d=>{const x=d.data()||{};return {month:d.id,fill:x.fill==null?null:Number(x.fill),risk:x.risk==null?null:Number(x.risk),totals:x.totals||{}};});
     if(!ws.length&&!ts.length){
       $('#statusDot').classList.add('online');
       $('#statusText').textContent='接続済み・データ未保存（保存ボタンで初回登録／管理タブから移行）';
@@ -2177,6 +2204,29 @@ async function importSkillHistory(){
   await saveData();
 }
 $('#importHistoryBtn')&&$('#importHistoryBtn').addEventListener('click',importSkillHistory);
+
+// スナップショットを月次に整理（日付ラベルの正規化・重複統合・当月以降の削除）。
+// 自動記録は維持するため、次回保存時に当月が再追加される。
+async function cleanupSnapshots(){
+  if(!USE_FIREBASE){toast('整理はFirebase接続時のみ可能です');return;}
+  const cur=monthKey(new Date());
+  const cleaned=normalizeSnapshots(snapshots,true);
+  if(!confirm('スナップショットを月次に整理します。\n・日付表記のラベルを「YYYY-MM」に正規化し、同月を統合\n・当月（'+cur+'）以降を削除\n\n整理後：'+cleaned.length+'件（'+(cleaned[0]?.month||'—')+'〜'+(cleaned.at(-1)?.month||'—')+'）\n※自動記録は維持されるため、次回の保存時に当月が再び追加されます。\n\n整理前に自動バックアップします。よろしいですか？'))return;
+  downloadBackup('skillmap-before-cleanup-');
+  try{
+    const snap=await fdb.collection('snapshots').get();
+    const ops=[];
+    snap.docs.forEach(doc=>ops.push({ref:doc.ref,del:true}));            // 既存を全削除
+    cleaned.forEach(s=>ops.push({ref:fdb.collection('snapshots').doc(s.month),data:snapDoc(s)})); // 整理後を書込
+    if(ops.length)await commitOps(ops);
+    snapshots=cleaned;
+    dirtyKeys.delete('snapshots');
+    saveDataCache();
+    renderAll();
+    toast('スナップショットを整理しました');
+  }catch(e){toast('整理に失敗しました');console.error(e);}
+}
+$('#cleanupSnapBtn')&&$('#cleanupSnapBtn').addEventListener('click',cleanupSnapshots);
 
 /* ========================= 起動・ログイン制御 ========================= */
 function showLoginGate(msg,isError){
