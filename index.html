@@ -2159,19 +2159,50 @@ function saveOk(){
 async function loadFromFirestore(){
   const cached=loadDataCache();
   if(cached&&cached.workers&&cached.tasks){
-    applyLoadedData(cached);
+    try{applyLoadedData(cached);renderAll();}catch(err){console.error('cache render error',err);}
     $('#statusText').textContent='キャッシュ表示中（同期中）';
-    renderAll();
   }
+  // ── 読み込み本体（一時的なネットワークエラーは指数バックオフでリトライ）──
+  // サーバー優先で取得し、ローカル永続化キャッシュの破損/不整合で空・失敗になるのを防ぐ。
+  // 完全オフライン時のみローカルキャッシュにフォールバックする。
+  const getColl=async name=>{
+    const ref=fdb.collection(name);
+    try{ return await ref.get({source:'server'}); }
+    catch(e){ if(e&&e.code==='unavailable')return ref.get(); throw e; }
+  };
+  let result=null,lastErr=null;
+  for(let attempt=0;attempt<4;attempt++){
+    try{
+      result=await Promise.all([
+        getColl('workers'),
+        getColl('categories'),
+        getColl('subcategories'),
+        getColl('tasks'),
+        getColl('skills'),
+        getColl('snapshots'),
+      ]);
+      lastErr=null;break;
+    }catch(e){
+      lastErr=e;
+      if(e&&e.code==='permission-denied')break;          // 権限エラーはリトライしても無駄
+      if(attempt<3)await new Promise(r=>setTimeout(r,1000*Math.pow(2,attempt)));
+    }
+  }
+  if(lastErr){
+    const code=(lastErr&&lastErr.code)||'';
+    let hint='読み込みに失敗しました';
+    if(code==='permission-denied')hint='読み取り権限がありません（@'+ALLOWED_DOMAIN+' でログインしているか確認してください）';
+    else if(code==='unavailable')hint='ネットワークに接続できません（オフライン）。再接続をお試しください';
+    else if(code)hint='読み込みに失敗しました（'+code+'）';
+    $('#statusDot').classList.remove('online');
+    $('#statusText').textContent=hint;
+    toast(hint);
+    console.error('Firestore read failed:',lastErr);
+    return;   // 取得できた範囲（キャッシュ）の表示は維持
+  }
+  // ── 取得データの整形（描画とは分離し、描画例外で読み込み成功を握り潰さない）──
   try{
-    const [wS,cS,scS,tS,kS,sS]=await Promise.all([
-      fdb.collection('workers').get(),
-      fdb.collection('categories').get(),
-      fdb.collection('subcategories').get(),
-      fdb.collection('tasks').get(),
-      fdb.collection('skills').get(),
-      fdb.collection('snapshots').get(),
-    ]);
+    const [wS,cS,scS,tS,kS,sS]=result;
     const ws=wS.docs.map(d=>Object.assign({id:d.id},d.data())).sort((a,b)=>(a.ord||0)-(b.ord||0));
     const cs=cS.docs.map(d=>Object.assign({id:d.id},d.data()));
     const scs=scS.docs.map(d=>Object.assign({id:d.id},d.data()));
@@ -2181,14 +2212,22 @@ async function loadFromFirestore(){
     if(!ws.length&&!ts.length){
       $('#statusDot').classList.add('online');
       $('#statusText').textContent='接続済み・データ未保存（保存ボタンで初回登録／管理タブから移行）';
-      renderAll();return;
+      try{renderAll();}catch(err){console.error('render error',err);}
+      return;
     }
     applyLoadedData({workers:ws,categories:cs,subcats:scs,tasks:ts,skills:sk,snapshots:snaps});
     saveDataCache();
     $('#statusDot').classList.add('online');
     $('#statusText').textContent='接続済み（'+new Date().toLocaleTimeString('ja-JP')+' 読込）';
-    renderAll();
-  }catch(e){toast('読み込みに失敗しました');console.error(e);renderAll();}
+  }catch(e){
+    $('#statusText').textContent='データの整形でエラーが発生しました';
+    toast('データの整形でエラーが発生しました');
+    console.error('data shape error:',e);
+    return;
+  }
+  // ── 描画（失敗してもデータ取得は成功扱いのまま）──
+  try{renderAll();}
+  catch(e){toast('表示の描画でエラーが発生しました（データは取得済み）');console.error('render error:',e);}
 }
 // 変更/削除を1つのバッチ（必要なら分割）でコミット
 async function commitOps(ops){
