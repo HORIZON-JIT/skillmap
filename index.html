@@ -332,6 +332,7 @@
   </div>
   <div class="toolbar">
     <span class="conn-status"><span class="status-dot" id="statusDot"></span><span id="statusText">ローカルモード（試作・データは保存されません）</span></span>
+    <button class="mini-btn" id="hardResyncBtn" title="ローカルのキャッシュを消して、サーバーから最新を取り直します">最新を再読込</button>
     <button class="primary" id="saveBtn">保存</button>
   </div>
 </header>
@@ -1921,6 +1922,23 @@ $('#toggleDisabled').addEventListener('click',()=>{showDisabled=!showDisabled;
   $('#toggleDisabled').textContent=showDisabled?'無効を隠す':'無効も表示';renderMatrix();});
 $('#radarOverlay').addEventListener('change',drawRadars);
 $('#saveBtn').addEventListener('click',saveData);
+// ローカルキャッシュ（localStorage＋Firestoreの永続化IndexedDB）を全消去し、サーバーから取り直す
+async function hardResync(){
+  if(dirty&&!confirm('未保存の変更があります。\n破棄してサーバーの最新を取り直しますか？'))return;
+  const btn=$('#hardResyncBtn'); if(btn){btn.disabled=true;btn.textContent='再読込中…';}
+  // 1) アプリのデータキャッシュを削除
+  try{localStorage.removeItem(DATA_CACHE_KEY);}catch(_){}
+  try{Object.keys(localStorage).forEach(k=>{if(/skillmap/i.test(k))localStorage.removeItem(k);});}catch(_){}
+  // 2) Firestore のオフライン永続化キャッシュ（IndexedDB）を破棄
+  if(USE_FIREBASE&&fdb){
+    try{await fdb.terminate();await fdb.clearPersistence();}
+    catch(e){console.warn('clearPersistence skipped:',e);}
+  }
+  // 3) ページ自体のHTTPキャッシュも無視して、最新のindex.htmlを取得して再読込
+  const u=location.pathname+'?fresh='+Date.now();
+  location.replace(u);
+}
+$('#hardResyncBtn')&&$('#hardResyncBtn').addEventListener('click',hardResync);
 document.querySelectorAll('[data-range]').forEach(b=>b.addEventListener('click',()=>{
   dashboardRange=b.dataset.range;
   document.querySelectorAll('[data-range]').forEach(x=>x.classList.toggle('active',x===b));
